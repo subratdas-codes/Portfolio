@@ -12,50 +12,69 @@
 //
 // Access: POST or GET, requires `Authorization: Bearer <supabase admin JWT>`.
 
-import { ImapFlow } from 'imapflow';
-import { simpleParser } from 'mailparser';
-import { createClient } from '@supabase/supabase-js';
-
 export const config = { maxDuration: 20 };
 
 const ADMIN_EMAIL = process.env.GMAIL_USER ?? 'subratdas219@gmail.com';
 const TOKEN_RE = /\[Portfolio\s*#([A-Za-z0-9_-]{4,80})\]/i;
 const MAX_REPLY_LEN = 50_000;
 
-function json(status: number, data: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
+function json(res: any, status: number, data: Record<string, unknown>) {
+  res.writeHead(status, { 'content-type': 'application/json' });
+  res.end(JSON.stringify(data));
 }
 
-async function newAuthedClient(jwt: string) {
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
-  if (!url || !anon) return null;
-  const sb = createClient(url, anon, { auth: { persistSession: false } });
-  await sb.auth.setSession({ access_token: jwt, refresh_token: '' });
-  return sb;
+async function readBody(req: any): Promise<Record<string, unknown>> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+  const raw = Buffer.concat(chunks).toString('utf8');
+  return raw ? JSON.parse(raw) : {};
 }
 
-export default async function handler(req: Request): Promise<Response> {
-  const bearer = req.headers.get('authorization') ?? '';
+// Lazy-load heavy modules so cold starts are fast.
+let _imapflow: typeof import('imapflow') | null = null;
+async function imapflow() {
+  if (!_imapflow) _imapflow = await import('imapflow');
+  return _imapflow;
+}
+let _mailparser: typeof import('mailparser') | null = null;
+async function mailparser() {
+  if (!_mailparser) _mailparser = await import('mailparser');
+  return _mailparser;
+}
+let _supabase: typeof import('@supabase/supabase-js') | null = null;
+async function supabaseModule() {
+  if (!_supabase) _supabase = await import('@supabase/supabase-js');
+  return _supabase;
+}
+
+export default async function handler(req: any, res: any) {
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return json(res, 405, { error: 'Method not allowed' });
+  }
+
+  const bearer = (req.headers['authorization'] ?? '') as string;
   if (!bearer.toLowerCase().startsWith('bearer ')) {
-    return json(401, { error: 'Unauthorized' });
+    return json(res, 401, { error: 'Unauthorized' });
   }
   const jwt = bearer.slice(7).trim();
 
   if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-    return json(500, { error: 'GMAIL_USER / GMAIL_APP_PASSWORD not configured' });
+    return json(res, 500, { error: 'GMAIL_USER / GMAIL_APP_PASSWORD not configured' });
   }
 
-  const sb = await newAuthedClient(jwt);
-  if (!sb) return json(500, { error: 'SUPABASE_URL / SUPABASE_ANON_KEY not configured' });
+  const url = process.env.SUPABASE_URL;
+  const anon = process.env.SUPABASE_ANON_KEY;
+  if (!url || !anon) {
+    return json(res, 500, { error: 'SUPABASE_URL / SUPABASE_ANON_KEY not configured' });
+  }
 
-  // Verify the token belongs to the admin account.
+  const sbModule = await supabaseModule();
+  const sb = sbModule.createClient(url, anon, { auth: { persistSession: false } });
+  await sb.auth.setSession({ access_token: jwt, refresh_token: '' });
+
   const { data: userData, error: userError } = await sb.auth.getUser();
   if (userError || userData.user?.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
-    return json(403, { error: 'Not authorized' });
+    return json(res, 403, { error: 'Not authorized' });
   }
 
   let synced = 0;
@@ -63,21 +82,22 @@ export default async function handler(req: Request): Promise<Response> {
   const errors: string[] = [];
 
   try {
-    // Load every conversation id so we only import replies that map to a message.
     const { data: messages, error: msgErr } = await sb
       .from('contact_messages')
       .select('id');
     if (msgErr) throw new Error(`contact_messages select: ${msgErr.message}`);
-    const validIds = new Set((messages ?? []).map((m) => m.id));
+    const validIds = new Set((messages ?? []).map((m: any) => m.id));
 
-    // Existing email_message_ids so we never import the same reply twice.
     const { data: replies, error: repErr } = await sb
       .from('contact_replies')
       .select('email_message_id');
     if (repErr) throw new Error(`contact_replies select: ${repErr.message}`);
     const seenIds = new Set(
-      (replies ?? []).map((r) => r.email_message_id).filter(Boolean)
+      (replies ?? []).map((r: any) => r.email_message_id).filter(Boolean)
     );
+
+    const { ImapFlow } = await imapflow();
+    const { simpleParser } = await mailparser();
 
     const client = new ImapFlow({
       host: 'imap.gmail.com',
@@ -88,7 +108,6 @@ export default async function handler(req: Request): Promise<Response> {
 
     await client.connect();
     try {
-      // Find the Sent folder by attribute (avoids locale name differences).
       const mailboxes = await client.list();
       const sentPath =
         mailboxes.find((mb) => mb.attributes.includes('\\Sent'))?.path ??
@@ -106,7 +125,6 @@ export default async function handler(req: Request): Promise<Response> {
               if (!full?.source) continue;
               const parsed = await simpleParser(Buffer.from(full.source));
               const subject = parsed.subject ?? '';
-              // Ensure the token lives in the subject of THIS message.
               const m = TOKEN_RE.exec(subject);
               if (!m) continue;
               const convId = m[1];
@@ -143,15 +161,14 @@ export default async function handler(req: Request): Promise<Response> {
         }
       };
 
-      // Visitor replies land in the inbox; admin's own Gmail replies sit in Sent.
       await scanMailbox('INBOX', 'visitor');
       await scanMailbox(sentPath, 'admin');
     } finally {
       await client.logout();
     }
   } catch (e) {
-    return json(500, { error: e instanceof Error ? e.message : 'sync failed', synced });
+    return json(res, 500, { error: e instanceof Error ? e.message : 'sync failed', synced });
   }
 
-  return json(200, { ok: true, synced, skipped, errors });
+  return json(res, 200, { ok: true, synced, skipped, errors });
 }
