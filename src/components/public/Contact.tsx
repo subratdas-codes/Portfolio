@@ -13,9 +13,6 @@ const ICONS: Record<string, typeof Github> = { Github, Linkedin, Twitter, Mail }
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
 }
-function escapeAttr(s: string): string {
-  return s.replace(/[&"'<>]/g, (c) => ({ '&': '&amp;', '"': '&quot;', "'": '&#39;', '<': '&lt;', '>': '&gt;' })[c] as string);
-}
 
 export function Contact() {
   const profile = useSingleton('profile');
@@ -73,13 +70,17 @@ export function Contact() {
         body: JSON.stringify({
           to: profile.email || 'subratdas219@gmail.com',
           subject: `[Portfolio #${row.id}] ${threadSubject}`,
+          fromName: row.name,
           html:
-            '<h3>New message from your portfolio</h3>' +
-            `<p><b>Name:</b> ${escapeHtml(row.name)}<br/>` +
-            `<b>Email:</b> <a href="mailto:${escapeAttr(row.email)}">${escapeHtml(row.email)}</a><br/>` +
-            `<b>Subject:</b> ${escapeHtml(threadSubject)}</p>` +
-            `<p style="white-space:pre-wrap">${escapeHtml(row.message)}</p>`,
-          replyTo: row.email,
+            '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">'
+            + '<h2 style="margin:0 0 4px">New message from your portfolio</h2>'
+            + `<p style="color:#64748b;margin:0 0 16px">from <b>${escapeHtml(row.name)}</b> &lt;${escapeHtml(row.email)}&gt;</p>`
+            + `<hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px"/>`
+            + (threadSubject ? `<p style="margin:0 0 12px"><b>Subject:</b> ${escapeHtml(threadSubject)}</p>` : '')
+            + `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;white-space:pre-wrap;color:#0f172a">${escapeHtml(row.message)}</div>`
+            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Reply to this email to write back to ${escapeHtml(row.name)} — the reply is saved to the conversation in your admin dashboard.</p>`
+            + '</div>',
+          replyTo: `"${row.name}" <${row.email}>`,
         }),
       }).catch((err) => {
         // Email is best-effort; the message is safely stored in the dashboard.

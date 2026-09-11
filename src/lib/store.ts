@@ -95,7 +95,17 @@ function loadDB(): DB {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.profile && Array.isArray(parsed.profile) && parsed.sections) return parsed;
+      if (parsed && parsed.profile && Array.isArray(parsed.profile) && parsed.sections) {
+        // Merge so collections added in newer versions of the app exist even in
+        // caches written before they were introduced (e.g. contact_replies).
+        const fresh = seedData() as DB;
+        for (const table of ALL_TABLES) {
+          if (!Array.isArray((parsed as any)[table])) (parsed as any)[table] = clone(fresh[table] ?? []);
+        }
+        if (!Array.isArray(parsed.analytics)) (parsed as any).analytics = [];
+        if (!Array.isArray(parsed.audit_logs)) (parsed as any).audit_logs = [];
+        return parsed;
+      }
     }
   } catch {
     /* ignore */

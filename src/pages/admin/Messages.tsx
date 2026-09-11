@@ -114,7 +114,14 @@ export function Messages() {
 
     // 2. Email it directly to the visitor — background, never blocks the UI.
     const subject = `Re: [Portfolio #${active}] ${m.subject || 'Your message to Subrat Das'}`;
-    const bodyHtml = `<p style="white-space:pre-wrap">${escapeHtml(replyBody)}</p><p>—<br/>Best regards,<br/>Subrat Das</p>`;
+    const bodyHtml =
+      '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">'
+      + `<p style="margin:0 0 16px">Hi <b>${escapeHtml(m.name)}</b>,</p>`
+      + `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;white-space:pre-wrap;color:#0f172a">${escapeHtml(replyBody)}</div>`
+      + '<p style="margin:24px 0 0">Best regards,</p>'
+      + '<p style="margin:4px 0 0"><b>Subrat Das</b></p>'
+      + '<p style="color:#64748b;font-size:12px;margin:16px 0 0">You received this in reply to your message sent through subratdas.vercel.app.</p>'
+      + '</div>';
     const token = await getAdminToken();
     fetch('/api/send-email', {
       method: 'POST',
@@ -126,6 +133,7 @@ export function Messages() {
         to: m.email,
         subject,
         html: bodyHtml,
+        fromName: 'Subrat Das',
         replyTo: 'subratdas219@gmail.com',
         threadId: active,
       }),
