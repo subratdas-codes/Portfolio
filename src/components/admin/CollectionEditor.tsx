@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, Search, X, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
-import { insert, update, remove, getPersistError, forceCloudSync } from '../../lib/store';
+import { insert, update, remove, getPersistError, forceCloudSync, setCollectionOrder, getCollectionOrder } from '../../lib/store';
 import { Modal } from '../ui/Modal';
 import { TextField, TextArea, ArrayField, ObjectListField, ImageField, FileField } from './fields';
 import type { FieldDef } from './fields';
@@ -29,7 +29,13 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
   const filtered = (query && searchKeys
     ? rows.filter((r) => searchKeys.some((k) => String((r as unknown as Record<string, unknown>)[k] ?? '').toLowerCase().includes(query.toLowerCase())))
     : rows
-  ).sort((a, b) => ((a as Row).sort_order ?? 0) - ((b as Row).sort_order ?? 0));
+  ).sort((a, b) => {
+    const ord = new Map(getCollectionOrder(table).map((id, i) => [id, i]));
+    const ia = (a as Row).id ? ord.get((a as Row).id) ?? Infinity : Infinity;
+    const ib = (b as Row).id ? ord.get((b as Row).id) ?? Infinity : Infinity;
+    if (ia !== ib) return ia - ib;
+    return ((a as Row).sort_order ?? 0) - ((b as Row).sort_order ?? 0);
+  });
 
   const startNew = () => {
     const blank: Row = { created_at: new Date().toISOString() };
@@ -68,17 +74,15 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
   };
 
   const moveRow = async (id: string, direction: 'up' | 'down') => {
-    const sorted = [...rows].sort((a, b) => ((a as Row).sort_order ?? 0) - ((b as Row).sort_order ?? 0));
-    const idx = sorted.findIndex((r) => (r as Row).id === id);
+    const ordered = getCollectionOrder(table);
+    const base = ordered.length ? ordered : filtered.map((r) => (r as Row).id);
+    const idx = base.indexOf(id);
     if (idx < 0) return;
     const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (targetIdx < 0 || targetIdx >= sorted.length) return;
-    const a = sorted[idx] as Row;
-    const b = sorted[targetIdx] as Row;
-    const aOrder = a.sort_order ?? idx;
-    const bOrder = b.sort_order ?? targetIdx;
-    update(table, a.id, { sort_order: bOrder } as any);
-    update(table, b.id, { sort_order: aOrder } as any);
+    if (targetIdx < 0 || targetIdx >= base.length) return;
+    const next = [...base];
+    [next[idx], next[targetIdx]] = [next[targetIdx], next[idx]];
+    setCollectionOrder(table, next);
     setFlashId(id);
     setTimeout(() => setFlashId(null), 900);
     await forceCloudSync();

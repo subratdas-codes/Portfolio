@@ -22,6 +22,7 @@ const STORAGE_KEY = 'subrat_portfolio_db_v9';
 const SESSION_KEY = 'subrat_portfolio_session_v1';
 const DRAFT_KEY = 'subrat_portfolio_draft_v1';
 const SEEDED_KEY = 'subrat_portfolio_supabase_seeded_v1';
+const ORDER_KEY = 'subrat_portfolio_order_v1';
 
 type Listener = () => void;
 
@@ -71,6 +72,50 @@ function loadDB(): DB {
 let db: DB = loadDB();
 const listeners = new Set<Listener>();
 
+// ------------------------------------------------------------------ Order map
+// Client-side display order per collection (survives refresh). The cloud gets a
+// best-effort sort_order write; until every table has that column the local map
+// keeps our order stable and visible.
+type OrderMap = Record<string, string[]>;
+function loadOrderMap(): OrderMap {
+  try {
+    const raw = localStorage.getItem(ORDER_KEY);
+    if (raw) return JSON.parse(raw) as OrderMap;
+  } catch { /* ignore */ }
+  return {};
+}
+let orderMap = loadOrderMap();
+function saveOrderMap() {
+  try { localStorage.setItem(ORDER_KEY, JSON.stringify(orderMap)); } catch { /* ignore */ }
+}
+function normalizedOrder(table: TableName, rows: Schema[TableName][]): string[] {
+  const known = orderMap[table];
+  if (!known || !known.length) return [];
+  const ids = new Set(rows.map((r) => (r as { id?: string }).id).filter(Boolean));
+  const kept = known.filter((id) => ids.has(id));
+  const tail = rows.map((r) => (r as { id?: string }).id).filter((id): id is string => !!id && !kept.includes(id));
+  return [...kept, ...tail];
+}
+function sortByOrder<T>(table: TableName, list: T[]): T[] {
+  const order = orderMap[table];
+  if (!order || !order.length) return list;
+  const idx = new Map(order.map((id, i) => [id, i]));
+  return [...list].sort((a, b) => {
+    const ia = (a as { id?: string }).id ? idx.get((a as { id: string }).id) ?? Infinity : Infinity;
+    const ib = (b as { id?: string }).id ? idx.get((b as { id: string }).id) ?? Infinity : Infinity;
+    return ia - ib;
+  });
+}
+function setTableOrder(table: TableName, ids: string[]) {
+  orderMap[table] = ids;
+  saveOrderMap();
+}
+// Re-apply the client-side order map on top of cloud rows so a reorder is
+// never reverted by the next sync.
+function formatFetched(table: TableName, rows: unknown[]): unknown[] {
+  return sortByOrder(table, rows);
+}
+
 let isCloudSyncing = false;
 let syncSuccessCount = 0;
 let lastPersistError: string | null = null;
@@ -105,7 +150,7 @@ export function getDB(): DB {
 }
 
 // ---------------------------------------------------------------- Supabase push
-function pushTable(kind: 'insert' | 'update' | 'delete' | 'upsert' | 'reorder', table: TableName, payload?: any, opts?: any) {
+function pushTable(kind: 'insert' | 'update' | 'delete' | 'upsert' | 'reorder', table: TableName, payload?: any, opts?: any, silent = false) {
   if (!supabase) return;
   const promise = (async () => {
     const from = table === 'sections' ? 'sections' : table;
@@ -129,7 +174,7 @@ function pushTable(kind: 'insert' | 'update' | 'delete' | 'upsert' | 'reorder', 
     }
   })().catch((e) => {
     console.warn('[store] Supabase push failed', table, e);
-    lastCloudError = e instanceof Error ? e.message : 'Cloud sync failed';
+    if (!silent) lastCloudError = e instanceof Error ? e.message : 'Cloud sync failed';
   });
   pushQueue.push(promise);
   promise.finally(() => {
@@ -196,7 +241,7 @@ export async function syncFromCloud(): Promise<void> {
       const { table, rows, denied } = r.value;
       if (denied) continue;
       if (rows.length > 0) {
-        (db as any)[table] = rows as any;
+        (db as any)[table] = formatFetched(table as TableName, rows as Schema[TableName][]);
         anyData = true;
       }
     }
@@ -349,6 +394,31 @@ export function remove<K extends CollectionTable>(table: K, id: string): void {
     audit('delete', table, id, 'Deleted ' + table);
     emit();
   }
+}
+
+export function getCollectionOrder(table: CollectionTable): string[] {
+  return [...(orderMap[table] ?? [])];
+}
+
+/** Persist a full collection order: updates local db order + order map, then
+ *  best-effort writes sort_order to the cloud (works once the column exists). */
+export function setCollectionOrder<K extends CollectionTable>(table: K, ids: string[]): void {
+  const arr = db[table] as Schema[K][];
+  const map = new Map(arr.map((r) => [(r as { id: string }).id, r]));
+  const ordered: Schema[K][] = [];
+  ids.forEach((id) => {
+    const r = map.get(id);
+    if (r) ordered.push(r);
+  });
+  arr.forEach((r) => { if (!ids.includes((r as { id: string }).id)) ordered.push(r); });
+  (db[table] as Schema[K][]) = ordered;
+  setTableOrder(table, ordered.map((r) => (r as { id: string }).id));
+  // Best-effort cloud convergence — safe to fail when a table lacks the column.
+  ordered.forEach((r, i) => {
+    pushTable('update', table, { id: (r as { id: string }).id, patch: { sort_order: i } as any }, undefined, true);
+  });
+  audit('reorder', table, 'multi', 'Reordered ' + table);
+  emit();
 }
 
 export function reorder<K extends CollectionTable>(table: K, ids: string[]): void {
