@@ -24,6 +24,7 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
   const [editing, setEditing] = useState<Row | null>(null);
   const [isNew, setIsNew] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [flashId, setFlashId] = useState<string | null>(null);
 
   const filtered = (query && searchKeys
     ? rows.filter((r) => searchKeys.some((k) => String((r as unknown as Record<string, unknown>)[k] ?? '').toLowerCase().includes(query.toLowerCase())))
@@ -78,6 +79,8 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
     const bOrder = b.sort_order ?? targetIdx;
     update(table, a.id, { sort_order: bOrder } as any);
     update(table, b.id, { sort_order: aOrder } as any);
+    setFlashId(id);
+    setTimeout(() => setFlashId(null), 900);
     await forceCloudSync();
   };
 
@@ -120,7 +123,7 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
             </thead>
             <tbody className="divide-y divide-white/5">
               {filtered.map((row) => (
-                <tr key={(row as Row).id} className="transition hover:bg-white/5">
+                <tr key={(row as Row).id} className={`transition hover:bg-white/5 ${flashId === (row as Row).id ? 'bg-emerald-500/20' : ''}`}>
                   {fields.slice(0, 5).map((f) => (
                     <td key={f.name} className="max-w-[200px] truncate px-4 py-3 text-slate-300">{displayValue(row as Row, f)}</td>
                   ))}
