@@ -12,6 +12,7 @@ export function Analytics() {
     return {
       pageViews: byType('page_view'),
       projectViews: byType('project_view'),
+      resumeViews: resume.views,
       resumeDownloads: resume.downloads,
       contacts: byType('contact'),
       assistant: byType('assistant'),
@@ -52,9 +53,10 @@ export function Analytics() {
   const cards = [
     { label: 'Page Views', value: stats.pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500' },
     { label: 'Project Views', value: stats.projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500' },
+    { label: 'Resume Views', value: stats.resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500' },
     { label: 'Resume Downloads', value: stats.resumeDownloads, icon: Download, color: 'from-emerald-500 to-green-500' },
     { label: 'Contact Requests', value: stats.contacts, icon: Mail, color: 'from-amber-500 to-orange-500' },
-    { label: 'Assistant Interactions', value: stats.assistant, icon: Bot, color: 'from-violet-500 to-fuchsia-500' },
+    { label: 'Assistant Interactions', value: stats.assistant, icon: Bot, color: 'from-rose-500 to-pink-500' },
   ];
 
   return (
@@ -64,7 +66,7 @@ export function Analytics() {
         <p className="text-sm text-slate-400">Visitor statistics and engagement metrics.</p>
       </div>
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => (
           <div key={c.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className={`mb-3 grid h-10 w-10 place-items-center rounded-lg bg-gradient-to-br ${c.color}`}><c.icon size={18} className="text-white" /></div>

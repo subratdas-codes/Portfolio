@@ -206,6 +206,7 @@ export interface Resume {
   file_size: string;
   uploaded_at: ISODate;
   downloads: number;
+  views: number;
 }
 
 export interface Settings {
@@ -233,7 +234,7 @@ export interface SectionConfig {
 
 export interface AnalyticsEvent {
   id: ID;
-  type: 'page_view' | 'project_view' | 'resume_download' | 'contact' | 'assistant' | 'click';
+  type: 'page_view' | 'project_view' | 'resume_download' | 'resume_view' | 'contact' | 'assistant' | 'click';
   referrer: string;
   path: string;
   meta: string;

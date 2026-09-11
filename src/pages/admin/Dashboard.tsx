@@ -19,15 +19,17 @@ export function Dashboard() {
   const projectViews = projects.reduce((s, p) => s + p.views, 0);
   const pageViews = analytics.filter((a) => a.type === 'page_view').length;
   const resumeDls = resume.downloads;
+  const resumeViews = resume.views;
   const assistantUses = analytics.filter((a) => a.type === 'assistant').length;
 
   const stats = [
     { label: 'Page Views', value: pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500', to: '/admin/analytics' },
     { label: 'Project Views', value: projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500', to: '/admin/analytics' },
+    { label: 'Resume Views', value: resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500', to: '/admin/analytics' },
     { label: 'Resume Downloads', value: resumeDls, icon: Download, color: 'from-emerald-500 to-green-500', to: '/admin/analytics' },
     { label: 'Unread Messages', value: unread, icon: Mail, color: 'from-amber-500 to-orange-500', to: '/admin/messages' },
-    { label: 'Assistant Chats', value: assistantUses, icon: Bot, color: 'from-violet-500 to-fuchsia-500', to: '/admin/analytics' },
-    { label: 'Total Projects', value: projects.length, icon: FileText, color: 'from-rose-500 to-pink-500', to: '/admin/projects' },
+    { label: 'Assistant Chats', value: assistantUses, icon: Bot, color: 'from-rose-500 to-pink-500', to: '/admin/analytics' },
+    { label: 'Total Projects', value: projects.length, icon: FileText, color: 'from-cyan-500 to-teal-500', to: '/admin/projects' },
   ];
 
   const quickLinks = [

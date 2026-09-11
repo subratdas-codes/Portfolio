@@ -286,6 +286,7 @@ export function seedData(): DB {
       file_size: '284 KB',
       uploaded_at: now,
       downloads: 87,
+      views: 0,
     }],
 
     settings: [{

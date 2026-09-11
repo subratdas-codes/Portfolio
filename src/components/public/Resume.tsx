@@ -24,6 +24,7 @@ export function Resume() {
   // For PDFs we use Google Docs Viewer so it renders in the browser.
   // For images we open the URL directly.
   const onView = () => {
+    trackEvent('resume_view');
     if (isPdf) {
       window.open(
         `https://docs.google.com/viewer?url=${encodeURIComponent(resume.file_url)}&embedded=true`,

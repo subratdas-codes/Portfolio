@@ -514,7 +514,7 @@ export function reorder<K extends CollectionTable>(table: K, ids: string[]): voi
 
 // ---------------------------------------------------------------- Analytics
 export function trackEvent(
-  type: 'page_view' | 'project_view' | 'resume_download' | 'contact' | 'assistant' | 'click',
+  type: 'page_view' | 'project_view' | 'resume_download' | 'resume_view' | 'contact' | 'assistant' | 'click',
   meta = ''
 ) {
   const event = {
@@ -534,7 +534,10 @@ export function trackEvent(
     if (p) p.views += 1;
   }
   if (type === 'resume_download') {
-    if (db.resume[0]) db.resume[0].downloads += 1;
+    if (db.resume[0]) db.resume[0].downloads = (db.resume[0].downloads ?? 0) + 1;
+  }
+  if (type === 'resume_view') {
+    if (db.resume[0]) db.resume[0].views = (db.resume[0].views ?? 0) + 1;
   }
 
   if (supabase) {
@@ -552,7 +555,12 @@ export function trackEvent(
     }
     if (type === 'resume_download') {
       supabase.rpc('incr_resume_downloads', {}).then(({ error }) => {
-        if (error) console.warn('[store] download count failed (ignored)', error.message);
+        if (error) console.warn('[store] resume download increment failed (ignored)', error.message);
+      });
+    }
+    if (type === 'resume_view') {
+      supabase.rpc('incr_resume_views', {}).then(({ error }) => {
+        if (error) console.warn('[store] resume view increment failed (ignored)', error.message);
       });
     }
   }
