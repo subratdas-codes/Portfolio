@@ -76,7 +76,7 @@ const PUBLIC_TABLES: TableName[] = [
   'certificates', 'achievements', 'gallery', 'testimonials', 'blogs',
   'coding_profiles', 'social_links', 'resume', 'settings', 'sections',
 ];
-const PRIVATE_TABLES: TableName[] = ['analytics', 'audit_logs', 'contact_messages'];
+const PRIVATE_TABLES: TableName[] = ['analytics', 'audit_logs', 'contact_messages', 'contact_replies'];
 const ALL_TABLES: TableName[] = [...PUBLIC_TABLES, ...PRIVATE_TABLES];
 
 // Tables to push into Supabase during seeding (skip private/demo content).
@@ -408,6 +408,18 @@ export function insert<K extends CollectionTable>(
   (db[table] as Schema[K][]).unshift(newRow);
   pushTable('insert', table, newRow as any);
   audit('insert', table, (newRow as { id: string }).id, 'Created ' + table);
+  emit();
+  return clone(newRow);
+}
+
+/** Local-only insert (no Supabase push). Used when the caller already wrote the
+ *  row to the cloud itself and only wants the store mirrored instantly. */
+export function insertLocal<K extends CollectionTable>(
+  table: K,
+  row: Omit<Schema[K], 'id'> & { id?: string }
+): Schema[K] {
+  const newRow = { ...row, id: row.id ?? cryptoId() } as Schema[K];
+  (db[table] as Schema[K][]).unshift(newRow);
   emit();
   return clone(newRow);
 }

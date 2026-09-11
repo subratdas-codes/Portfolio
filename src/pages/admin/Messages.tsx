@@ -1,18 +1,39 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Mail, Star, Trash2, Reply, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Mail, Star, Trash2, Reply, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink, RefreshCw, User } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
-import { update, remove } from '../../lib/store';
+import { update, remove, insertLocal, cryptoId, syncFromCloud } from '../../lib/store';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { Modal } from '../../components/ui/Modal';
+import type { ContactMessage, ContactReply } from '../../lib/types';
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+}
+
+async function getAdminToken(): Promise<string | null> {
+  if (!supabase || !isSupabaseConfigured) return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
 
 export function Messages() {
   const messages = useCollection('contact_messages');
+  const replies = useCollection('contact_replies');
   const location = useLocation();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all');
   const [active, setActive] = useState<string | null>(null);
   const [reply, setReply] = useState('');
   const [replyStatus, setReplyStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [replying, setReplying] = useState(false);
+  const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
+
+  const syncedOnce = useRef(false);
 
   // Open a specific message when arriving from the dashboard's "Recent Messages".
   const openedFromNav = useRef(false);
@@ -26,6 +47,14 @@ export function Messages() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages, location.state]);
 
+  // Pull email replies in from Gmail on first open (then Realtime keeps it live).
+  useEffect(() => {
+    if (syncedOnce.current) return;
+    syncedOnce.current = true;
+    syncEmailReplies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const filtered = messages.filter((m) => {
     if (filter === 'unread' && m.read) return false;
     if (filter === 'starred' && !m.starred) return false;
@@ -34,13 +63,17 @@ export function Messages() {
   });
 
   const activeMsg = messages.find((m) => m.id === active);
+  const thread = (replies as ContactReply[])
+    .filter((r) => r.message_id === active)
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
   const open = (id: string) => {
     setActive(id);
     setReplyStatus('idle');
+    setReplying(false);
     const m = messages.find((x) => x.id === id);
     if (m && !m.read) update('contact_messages', id, { read: true });
-    setReply(m?.reply ?? '');
+    setReply('');
   };
 
   const closeModal = () => {
@@ -48,49 +81,87 @@ export function Messages() {
     setReplyStatus('idle');
   };
 
-  // Send reply email directly to the person who contacted Subrat.
-  // Uses the Vercel Resend function — no activation step, works immediately.
   const sendReply = async () => {
-    if (!active || !activeMsg || !reply.trim()) return;
+    if (!active || !activeMsg || !reply.trim() || replying) return;
+    const m = activeMsg as ContactMessage;
+    setReplying(true);
     setReplyStatus('sending');
 
-    // 1. Save the reply in the DB (cloud-synced)
-    update('contact_messages', active, { reply });
+    const replyBody = reply.trim().slice(0, 10000);
+    const replyRow = {
+      id: cryptoId(),
+      message_id: active,
+      sender: 'admin' as const,
+      body: replyBody,
+      created_at: new Date().toISOString(),
+    };
 
-    // 2. Send email straight to the sender via Resend (FROM subratdas219@gmail.com).
-    let failed = false;
+    // 1. Persist locally + to Supabase (Realtime broadcasts it to other admin tabs).
     try {
-      const res = await fetch('/api/send-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          to: activeMsg.email,
-          subject: 'Re: ' + (activeMsg.subject || 'Your message to Subrat Das'),
-          html: '<p style="white-space:pre-wrap">' + reply.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string) + '</p><p>—<br/>Best regards,<br/>Subrat Das<br/>subratdas219@gmail.com</p>',
-          replyTo: 'subratdas219@gmail.com',
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        console.warn('[reply] send failed', res.status, data);
-        failed = true;
+      if (supabase && isSupabaseConfigured) {
+        const { error } = await supabase.from('contact_replies').insert(replyRow);
+        if (error) throw error;
       }
+      insertLocal('contact_replies', replyRow);
+      setReplyStatus('sent');
+      setReply('');
     } catch (e) {
-      console.warn('[reply] Email send failed (reply still saved in dashboard):', e);
-      failed = true;
+      console.warn('[reply] Save failed:', e);
+      setReplyStatus('idle');
+      setReplying(false);
+      return;
     }
 
-    // Fallback: open a pre-filled Gmail compose so the reply is never lost.
-    if (failed) {
-      const mailto = `mailto:${activeMsg.email}?subject=${encodeURIComponent('Re: ' + (activeMsg.subject || 'Your message to Subrat Das'))}&body=${encodeURIComponent(reply + '\n\n---\nBest regards,\nSubrat Das\nsubratdas219@gmail.com')}`;
-      const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: activeMsg.email, su: 'Re: ' + (activeMsg.subject || 'Your message to Subrat Das'), body: reply + '\n\n---\nBest regards,\nSubrat Das\nsubratdas219@gmail.com' }).toString()}`;
-      window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank');
-    }
+    // 2. Email it directly to the visitor — background, never blocks the UI.
+    const subject = `Re: [Portfolio #${active}] ${m.subject || 'Your message to Subrat Das'}`;
+    const bodyHtml = `<p style="white-space:pre-wrap">${escapeHtml(replyBody)}</p><p>—<br/>Best regards,<br/>Subrat Das</p>`;
+    const token = await getAdminToken();
+    fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        to: m.email,
+        subject,
+        html: bodyHtml,
+        replyTo: 'subratdas219@gmail.com',
+        threadId: active,
+      }),
+    })
+      .catch((err) => {
+        console.warn('[reply] Email send failed (reply saved in dashboard):', err);
+        const mailto = `mailto:${m.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(replyBody + '\n\n---\nBest regards,\nSubrat Das')}`;
+        const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: m.email, su: subject, body: replyBody + '\n\n---\nBest regards,\nSubrat Das' }).toString()}`;
+        window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank');
+      })
+      .then(() => { setReplying(false); });
 
-    // Brief delay for UX
-    await new Promise((r) => setTimeout(r, 800));
-    setReplyStatus('sent');
-    setTimeout(() => { closeModal(); }, 2000);
+    // Keep modal open so the user can keep chatting on the same thread.
+  };
+
+  const syncEmailReplies = async () => {
+    const token = await getAdminToken();
+    if (!token) {
+      setSyncState('error');
+      return;
+    }
+    setSyncState('syncing');
+    try {
+      const res = await fetch('/api/sync-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.error || 'sync failed');
+      syncFromCloud();
+      setSyncState('done');
+    } catch (e) {
+      console.warn('[sync-email] Failed:', e);
+      setSyncState('error');
+    }
+    setTimeout(() => setSyncState((s) => (s === 'done' ? 'idle' : s)), 3000);
   };
 
   const exportCSV = () => {
@@ -102,6 +173,10 @@ export function Messages() {
     a.href = URL.createObjectURL(blob); a.download = 'messages.csv'; a.click();
   };
 
+  const focusReplyBox = () => {
+    setReplying(true);
+  };
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -109,7 +184,13 @@ export function Messages() {
           <h1 className="text-2xl font-bold text-white">Contact Messages</h1>
           <p className="text-sm text-slate-400">{messages.filter((m) => !m.read).length} unread of {messages.length} total</p>
         </div>
-        <button onClick={exportCSV} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"><Download size={15} /> Export CSV</button>
+        <div className="flex items-center gap-2">
+          <button onClick={syncEmailReplies} disabled={syncState === 'syncing'} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10 disabled:opacity-60">
+            {syncState === 'syncing' ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+            {syncState === 'done' ? 'Synced!' : 'Sync email replies'}
+          </button>
+          <button onClick={exportCSV} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-sm text-white hover:bg-white/10"><Download size={15} /> Export CSV</button>
+        </div>
       </div>
 
       <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -123,25 +204,28 @@ export function Messages() {
       </div>
 
       <div className="space-y-2">
-        {filtered.map((m) => (
-          <div key={m.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 transition hover:bg-white/10 ${m.read ? 'border-white/5 bg-white/[0.02]' : 'border-indigo-400/30 bg-indigo-500/5'}`} onClick={() => open(m.id)}>
-            <button onClick={(e) => { e.stopPropagation(); update('contact_messages', m.id, { starred: !m.starred }); }} className={m.starred ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}><Star size={16} className={m.starred ? 'fill-amber-400' : ''} /></button>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className={`truncate ${m.read ? 'font-medium text-slate-300' : 'font-bold text-white'}`}>{m.name}</span>
-                {!m.read && <span className="h-2 w-2 shrink-0 rounded-full bg-indigo-400" />}
-                {m.reply && <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">replied</span>}
+        {filtered.map((m) => {
+          const replyCount = (replies as ContactReply[]).filter((r) => r.message_id === m.id).length;
+          return (
+            <div key={m.id} className={`flex cursor-pointer items-center gap-3 rounded-xl border p-4 transition hover:bg-white/10 ${m.read ? 'border-white/5 bg-white/[0.02]' : 'border-indigo-400/30 bg-indigo-500/5'}`} onClick={() => open(m.id)}>
+              <button onClick={(e) => { e.stopPropagation(); update('contact_messages', m.id, { starred: !m.starred }); }} className={m.starred ? 'text-amber-400' : 'text-slate-600 hover:text-slate-400'}><Star size={16} className={m.starred ? 'fill-amber-400' : ''} /></button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className={`truncate ${m.read ? 'font-medium text-slate-300' : 'font-bold text-white'}`}>{m.name}</span>
+                  {!m.read && <span className="h-2 w-2 shrink-0 rounded-full bg-indigo-400" />}
+                  {(m.reply || replyCount > 0) && <span className="shrink-0 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] text-emerald-300">replied ({replyCount || 1})</span>}
+                </div>
+                <p className="truncate text-sm text-slate-400">{m.subject || m.message}</p>
               </div>
-              <p className="truncate text-sm text-slate-400">{m.subject || m.message}</p>
+              <span className="hidden shrink-0 text-xs text-slate-500 sm:block">{new Date(m.created_at).toLocaleDateString()}</span>
             </div>
-            <span className="hidden shrink-0 text-xs text-slate-500 sm:block">{new Date(m.created_at).toLocaleDateString()}</span>
-          </div>
-        ))}
+          );
+        })}
         {filtered.length === 0 && <div className="rounded-xl border border-white/10 bg-white/5 p-10 text-center text-slate-500">No messages found.</div>}
       </div>
 
-      <Modal open={!!active} onClose={closeModal} title="Message Details" maxWidth="max-w-xl">
-        {activeMsg && (
+      {activeMsg && (
+        <Modal open={!!active} onClose={closeModal} title="Message Details" maxWidth="max-w-2xl">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -155,23 +239,54 @@ export function Messages() {
               </div>
             </div>
             {activeMsg.subject && <div className="text-sm font-medium text-slate-300">Subject: {activeMsg.subject}</div>}
-            <div className="rounded-xl bg-white/5 p-4 text-sm text-slate-300">{activeMsg.message}</div>
 
-            {/* Show previous reply if exists */}
-            {activeMsg.reply && replyStatus === 'idle' && (
-              <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/5 p-4">
-                <div className="mb-1 text-xs font-semibold text-emerald-400">Previous Reply</div>
-                <p className="text-sm text-slate-300">{activeMsg.reply}</p>
+            {/* Conversation thread — chronological: visitor msg, replies, etc. */}
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-indigo-500/30 text-indigo-300"><User size={14} /></div>
+                <div className="min-w-0 flex-1">
+                  <div className="mb-1 flex items-center gap-2 text-xs">
+                    <span className="font-semibold text-indigo-300">{activeMsg.name} <span className="font-normal text-slate-500">(visitor)</span></span>
+                    <span className="text-slate-500">{new Date(activeMsg.created_at).toLocaleString()}</span>
+                  </div>
+                  <div className="rounded-xl rounded-tl-sm bg-white/5 p-3 text-sm text-slate-200">{activeMsg.message}</div>
+                </div>
               </div>
-            )}
+
+              {thread.map((r) => (
+                <div key={r.id} className="flex gap-3">
+                  <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${r.sender === 'admin' ? 'bg-emerald-500/30 text-emerald-300' : 'bg-indigo-500/30 text-indigo-300'}`}>
+                    {r.sender === 'admin' ? <Mail size={14} /> : <User size={14} />}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 flex items-center gap-2 text-xs">
+                      <span className={`font-semibold ${r.sender === 'admin' ? 'text-emerald-300' : 'text-indigo-300'}`}>
+                        {r.sender === 'admin' ? 'Subrat (admin)' : 'Visitor'} <span className="font-normal text-slate-500">· email</span>
+                      </span>
+                      <span className="text-slate-500">{new Date(r.created_at).toLocaleString()}</span>
+                    </div>
+                    <div className={`whitespace-pre-wrap rounded-xl ${r.sender === 'admin' ? 'rounded-tl-sm bg-emerald-500/10 p-3 text-sm text-emerald-100' : 'rounded-tl-sm bg-white/5 p-3 text-sm text-slate-200'}`}>{r.body}</div>
+                  </div>
+                </div>
+              ))}
+
+              {/* Legacy single-reply column (pre-thread data) shown if no thread rows */}
+              {thread.length === 0 && activeMsg.reply && (
+                <div className="flex gap-3">
+                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-emerald-500/30 text-emerald-300"><Mail size={14} /></div>
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-1 text-xs font-semibold text-emerald-300">Subrat (admin) · previous reply</div>
+                    <div className="whitespace-pre-wrap rounded-xl rounded-tl-sm bg-emerald-500/10 p-3 text-sm text-emerald-100">{activeMsg.reply}</div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div>
-              <label className="mb-1 block text-sm text-slate-300">
-                {activeMsg.reply ? 'New Reply' : 'Reply'}
-              </label>
-              <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder="Type your reply to send to this person's email..." className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400" />
+              <label className="mb-1 block text-sm text-slate-300">Reply</label>
+              <textarea value={reply} onChange={(e) => setReply(e.target.value)} onFocus={focusReplyBox} rows={4} placeholder="Type your reply to send to this person's email..." className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400" />
               <p className="mt-1 text-xs text-slate-500">
-                <Mail size={11} className="inline" /> Reply is emailed directly to <span className="text-indigo-300">{activeMsg.email}</span>.
+                <Mail size={11} className="inline" /> Reply is emailed directly to <span className="text-indigo-300">{activeMsg.email}</span> and saved in this conversation.
               </p>
             </div>
 
@@ -195,8 +310,8 @@ export function Messages() {
               </button>
             </div>
           </div>
-        )}
-      </Modal>
+        </Modal>
+      )}
     </div>
   );
 }

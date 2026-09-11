@@ -189,6 +189,16 @@ export interface ContactMessage {
   reply?: string;
 }
 
+/** A single entry in a contact conversation thread (admin or visitor reply). */
+export interface ContactReply {
+  id: ID;
+  message_id: ID;            // parent contact_messages.id
+  sender: 'admin' | 'visitor';
+  body: string;
+  email_message_id?: string; // Gmail Message-ID (dedupe when syncing from email)
+  created_at: ISODate;
+}
+
 export interface Resume {
   id: ID;
   file_name: string;
@@ -256,6 +266,7 @@ export interface Schema {
   coding_profiles: CodingProfile;
   social_links: SocialLink;
   contact_messages: ContactMessage;
+  contact_replies: ContactReply;
   resume: Resume;
   settings: Settings;
   sections: SectionConfig;
@@ -269,6 +280,6 @@ export type TableName = keyof Schema;
 export type CollectionTable =
   | 'skills' | 'education' | 'experience' | 'projects' | 'certificates'
   | 'achievements' | 'gallery' | 'testimonials' | 'blogs' | 'coding_profiles'
-  | 'social_links' | 'contact_messages' | 'sections' | 'analytics' | 'audit_logs';
+  | 'social_links' | 'contact_messages' | 'contact_replies' | 'sections' | 'analytics' | 'audit_logs';
 
 export type SingletonTable = 'profile' | 'hero' | 'about' | 'settings' | 'resume';

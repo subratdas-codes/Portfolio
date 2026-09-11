@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mail, MapPin, Phone, Send, CheckCircle2, Github, Linkedin, Twitter, Loader2 } from 'lucide-react';
 import { useSingleton, useCollection } from '../../hooks/useStore';
 import { emailHref } from '../../lib/store';
 import { SectionHeading } from '../ui/SectionHeading';
 import { Reveal } from '../ui/Reveal';
-import { insert, trackEvent } from '../../lib/store';
+import { insertLocal, trackEvent, cryptoId } from '../../lib/store';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 const ICONS: Record<string, typeof Github> = { Github, Linkedin, Twitter, Mail };
 
@@ -22,6 +23,7 @@ export function Contact() {
   const [form, setForm] = useState({ name: '', email: '', subject: '', message: '' });
   const [status, setStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const submitting = useRef(false);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -33,45 +35,68 @@ export function Contact() {
 
   const submit = async (ev: React.FormEvent) => {
     ev.preventDefault();
+    if (submitting.current) return; // prevent duplicate submissions while in-flight
     const e = validate();
     setErrors(e);
     if (Object.keys(e).length) return;
 
+    submitting.current = true;
     setStatus('sending');
 
-    // 1. Store message in the cloud-synced DB (appears in admin dashboard)
-    insert('contact_messages', { ...form, read: false, starred: false, created_at: new Date().toISOString() });
-    trackEvent('contact', 'new message from ' + form.name);
+    const row = {
+      id: cryptoId(),
+      name: form.name.trim().slice(0, 120),
+      email: form.email.trim().slice(0, 254),
+      subject: form.subject.trim().slice(0, 300),
+      message: form.message.trim().slice(0, 10000),
+      read: false,
+      starred: false,
+      created_at: new Date().toISOString(),
+    };
 
-    // 2. Email the details straight to subratdas219@gmail.com via the Vercel
-    //    Resend function — no Formsubmit activation step, works immediately.
     try {
-      await fetch('/api/send-email', {
+      // 1. Save the message to Supabase FIRST (the actual write we wait on).
+      if (supabase && isSupabaseConfigured) {
+        const { error: insertErr } = await supabase.from('contact_messages').insert(row);
+        if (insertErr) throw insertErr;
+      }
+
+      // 2. Mirror into the local store so the Admin dashboard shows it instantly.
+      insertLocal('contact_messages', row);
+      trackEvent('contact', 'new message from ' + row.name);
+
+      // 3. Email delivery happens in the BACKGROUND — never blocks showing "Sent!".
+      const threadSubject = row.subject ? row.subject : 'New contact message';
+      fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: profile.email,
-          subject: form.subject ? `[Portfolio] ${form.subject}` : '[Portfolio] New contact message',
+          to: profile.email || 'subratdas219@gmail.com',
+          subject: `[Portfolio #${row.id}] ${threadSubject}`,
           html:
             '<h3>New message from your portfolio</h3>' +
-            `<p><b>Name:</b> ${escapeHtml(form.name)}<br/>` +
-            `<b>Email:</b> <a href="mailto:${escapeAttr(form.email)}">${escapeHtml(form.email)}</a><br/>` +
-            `<b>Subject:</b> ${escapeHtml(form.subject || '(none)')}</p>` +
-            `<p style="white-space:pre-wrap">${escapeHtml(form.message)}</p>`,
-          replyTo: form.email,
+            `<p><b>Name:</b> ${escapeHtml(row.name)}<br/>` +
+            `<b>Email:</b> <a href="mailto:${escapeAttr(row.email)}">${escapeHtml(row.email)}</a><br/>` +
+            `<b>Subject:</b> ${escapeHtml(threadSubject)}</p>` +
+            `<p style="white-space:pre-wrap">${escapeHtml(row.message)}</p>`,
+          replyTo: row.email,
         }),
+      }).catch((err) => {
+        // Email is best-effort; the message is safely stored in the dashboard.
+        console.warn('[contact] Email notification failed (message still saved):', err);
       });
-    } catch (e) {
-      // Email is best-effort; the message is safely stored in the dashboard.
-      console.warn('[contact] Email notification failed (message still saved):', e);
+    } catch (err) {
+      console.warn('[contact] Save failed:', err);
+      setStatus('idle');
+      setErrors({ message: 'Could not save your message. Please try again.' });
+      submitting.current = false;
+      return;
     }
-
-    // Brief delay for UX
-    await new Promise((r) => setTimeout(r, 800));
 
     setStatus('sent');
     setForm({ name: '', email: '', subject: '', message: '' });
     setTimeout(() => setStatus('idle'), 6000);
+    submitting.current = false;
   };
 
   const field = (key: keyof typeof form, label: string, type = 'text') => (

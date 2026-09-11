@@ -277,6 +277,8 @@ export function seedData(): DB {
       { id: id('m2'), name: 'James Patel', email: 'talent@atlassian.com', subject: 'Your DevConnect project', message: 'Your DevConnect project is impressive! We have a similar internal tool and would love your perspective. Let’s connect.', read: true, starred: false, created_at: now },
     ],
 
+    contact_replies: [],
+
     resume: [{
       id: id('resume'),
       file_name: 'Subrat_Das_Resume.pdf',

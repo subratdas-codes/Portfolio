@@ -15,7 +15,10 @@
     "@tailwindcss/vite": "^4.2.1",
     "esbuild": "^0.27.7",
     "framer-motion": "^12.35.0",
+    "imapflow": "^1.7.8",
     "lucide-react": "^0.577.0",
+    "mailparser": "^3.9.24",
+    "nodemailer": "^6.10.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "^7.80.0",
@@ -26,6 +29,7 @@
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@types/node": "^24.10.1",
+    "@types/nodemailer": "^6.4.24",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
