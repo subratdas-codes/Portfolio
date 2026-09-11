@@ -9,6 +9,13 @@ import { insert, trackEvent } from '../../lib/store';
 
 const ICONS: Record<string, typeof Github> = { Github, Linkedin, Twitter, Mail };
 
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string);
+}
+function escapeAttr(s: string): string {
+  return s.replace(/[&"'<>]/g, (c) => ({ '&': '&amp;', '"': '&quot;', "'": '&#39;', '<': '&lt;', '>': '&gt;' })[c] as string);
+}
+
 export function Contact() {
   const profile = useSingleton('profile');
   const socials = useCollection('social_links');
@@ -36,30 +43,24 @@ export function Contact() {
     insert('contact_messages', { ...form, read: false, starred: false, created_at: new Date().toISOString() });
     trackEvent('contact', 'new message from ' + form.name);
 
-    // 2. Email the details straight to the admin inbox via Formsubmit.co.
-    //    Free, no API key. Uses the AJAX endpoint so we can read the result.
-    //    (First ever submission triggers a one-time "confirm your email"
-    //    activation link in the inbox; after that every new contact is
-    //    delivered automatically.)
+    // 2. Email the details straight to subratdas219@gmail.com via the Vercel
+    //    Resend function — no Formsubmit activation step, works immediately.
     try {
-      const body = new FormData();
-      body.append('name', form.name);
-      body.append('email', form.email);
-      body.append('subject', form.subject || '(no subject)');
-      body.append('message', form.message);
-      body.append('_template', 'table');
-      body.append('_captcha', 'false');
-      const res = await fetch('https://formsubmit.co/ajax/subratdas219@gmail.com', {
+      await fetch('/api/send-email', {
         method: 'POST',
-        body,
-        headers: { Accept: 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: profile.email,
+          subject: form.subject ? `[Portfolio] ${form.subject}` : '[Portfolio] New contact message',
+          html:
+            '<h3>New message from your portfolio</h3>' +
+            `<p><b>Name:</b> ${escapeHtml(form.name)}<br/>` +
+            `<b>Email:</b> <a href="mailto:${escapeAttr(form.email)}">${escapeHtml(form.email)}</a><br/>` +
+            `<b>Subject:</b> ${escapeHtml(form.subject || '(none)')}</p>` +
+            `<p style="white-space:pre-wrap">${escapeHtml(form.message)}</p>`,
+          replyTo: form.email,
+        }),
       });
-      if (res.ok) {
-        const data = await res.json().catch(() => null);
-        if (data && data.success === 'false') console.warn('[contact] Formsubmit:', data.message);
-      } else {
-        console.warn('[contact] Formsubmit responded', res.status);
-      }
     } catch (e) {
       // Email is best-effort; the message is safely stored in the dashboard.
       console.warn('[contact] Email notification failed (message still saved):', e);

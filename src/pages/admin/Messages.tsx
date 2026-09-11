@@ -49,8 +49,7 @@ export function Messages() {
   };
 
   // Send reply email directly to the person who contacted Subrat.
-  // Uses Formsubmit.co (hidden iframe) to send from subratdas219@gmail.com,
-  // AND opens a mailto link so the admin's email client is ready to send.
+  // Uses the Vercel Resend function — no activation step, works immediately.
   const sendReply = async () => {
     if (!active || !activeMsg || !reply.trim()) return;
     setReplyStatus('sending');
@@ -58,48 +57,35 @@ export function Messages() {
     // 1. Save the reply in the DB (cloud-synced)
     update('contact_messages', active, { reply });
 
-    // 2. Send email to the sender via Formsubmit.co
-    //    The reply goes FROM subratdas219@gmail.com TO the sender's email.
+    // 2. Send email straight to the sender via Resend (FROM subratdas219@gmail.com).
+    let failed = false;
     try {
-      const iframeName = 'reply-iframe-' + Date.now();
-      const iframe = document.createElement('iframe');
-      iframe.name = iframeName;
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-
-      const form = document.createElement('form');
-      form.action = 'https://formsubmit.co/' + activeMsg.email;
-      form.method = 'POST';
-      form.target = iframeName;
-      form.style.display = 'none';
-
-      const fields: Record<string, string> = {
-        name: 'Subrat Das',
-        email: 'subratdas219@gmail.com',
-        _subject: 'Re: ' + (activeMsg.subject || 'Your message to Subrat Das'),
-        message: reply,
-        _template: 'table',
-        _captcha: 'false',
-      };
-
-      for (const [key, value] of Object.entries(fields)) {
-        const input = document.createElement('input');
-        input.type = 'hidden';
-        input.name = key;
-        input.value = value;
-        form.appendChild(input);
+      const res = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: activeMsg.email,
+          subject: 'Re: ' + (activeMsg.subject || 'Your message to Subrat Das'),
+          html: '<p style="white-space:pre-wrap">' + reply.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] as string) + '</p><p>—<br/>Best regards,<br/>Subrat Das<br/>subratdas219@gmail.com</p>',
+          replyTo: 'subratdas219@gmail.com',
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        console.warn('[reply] send failed', res.status, data);
+        failed = true;
       }
-
-      document.body.appendChild(form);
-      form.submit();
-      setTimeout(() => { form.remove(); setTimeout(() => iframe.remove(), 5000); }, 2000);
     } catch (e) {
-      console.warn('[reply] Formsubmit failed:', e);
+      console.warn('[reply] Email send failed (reply still saved in dashboard):', e);
+      failed = true;
     }
 
-    // 3. Also open the admin's email client with a pre-filled reply
-    const mailtoLink = `mailto:${activeMsg.email}?subject=${encodeURIComponent('Re: ' + (activeMsg.subject || 'Your message to Subrat Das'))}&body=${encodeURIComponent(reply + '\n\n---\nBest regards,\nSubrat Das\nsubratdas219@gmail.com')}`;
-    window.open(mailtoLink, '_blank');
+    // Fallback: open a pre-filled Gmail compose so the reply is never lost.
+    if (failed) {
+      const mailto = `mailto:${activeMsg.email}?subject=${encodeURIComponent('Re: ' + (activeMsg.subject || 'Your message to Subrat Das'))}&body=${encodeURIComponent(reply + '\n\n---\nBest regards,\nSubrat Das\nsubratdas219@gmail.com')}`;
+      const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: activeMsg.email, su: 'Re: ' + (activeMsg.subject || 'Your message to Subrat Das'), body: reply + '\n\n---\nBest regards,\nSubrat Das\nsubratdas219@gmail.com' }).toString()}`;
+      window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank');
+    }
 
     // Brief delay for UX
     await new Promise((r) => setTimeout(r, 800));
@@ -185,14 +171,14 @@ export function Messages() {
               </label>
               <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder="Type your reply to send to this person's email..." className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400" />
               <p className="mt-1 text-xs text-slate-500">
-                <Mail size={11} className="inline" /> Reply will be sent to <span className="text-indigo-300">{activeMsg.email}</span> and your email client will open.
+                <Mail size={11} className="inline" /> Reply is emailed directly to <span className="text-indigo-300">{activeMsg.email}</span>.
               </p>
             </div>
 
             {replyStatus === 'sent' && (
               <div className="flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                 <CheckCircle2 size={18} />
-                <span>Reply sent! Your email client has opened with the reply to {activeMsg.email}.</span>
+                <span>Reply sent to {activeMsg.email}!</span>
               </div>
             )}
 
