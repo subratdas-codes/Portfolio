@@ -34,6 +34,38 @@ export function enrichMailto(url: string): string {
   return `${url}?subject=${subject}&body=${body}`;
 }
 
+/** Returns a Gmail compose URL built from a mailto: link (with subject/body if present). */
+export function mailtoToGmail(url: string): string {
+  const clean = url.replace(/^mailto:/i, '');
+  const qIdx = clean.indexOf('?');
+  const to = qIdx >= 0 ? clean.slice(0, qIdx) : clean;
+  const params = new URLSearchParams(qIdx >= 0 ? clean.slice(qIdx + 1) : '');
+  const q = new URLSearchParams();
+  if (to) q.set('to', to);
+  if (params.get('subject')) q.set('su', params.get('subject') as string);
+  if (params.get('body')) q.set('body', params.get('body') as string);
+  return `https://mail.google.com/mail/?view=cm&fs=1&${q.toString()}`;
+}
+
+/** True when the device looks like a phone/tablet (native mail app handles mailto:). */
+export function isMobileDevice(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(navigator.userAgent) && !/Windows Phone/i.test(navigator.userAgent);
+}
+
+/** Href used for an email button: native mailto on mobile, Gmail compose on
+ *  desktop (where mailto: often does nothing without a registered mail client). */
+export function emailHref(url: string): string {
+  const mailto = enrichMailto(url);
+  if (!mailto.startsWith('mailto:')) return url;
+  return isMobileDevice() ? mailto : mailtoToGmail(mailto);
+}
+
+/** Returns true when the given URL is a mailto link (email button). */
+export function isMailtoUrl(url: string): boolean {
+  return !!url && url.toLowerCase().startsWith('mailto:');
+}
+
 type Listener = () => void;
 
 export type DB = { [K in TableName]: Schema[K][] } & { _v?: number; _updatedAt?: string };

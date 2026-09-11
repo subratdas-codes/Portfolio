@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Mail, MapPin, Phone, Send, CheckCircle2, Github, Linkedin, Twitter, Loader2 } from 'lucide-react';
 import { useSingleton, useCollection } from '../../hooks/useStore';
-import { enrichMailto } from '../../lib/store';
+import { emailHref } from '../../lib/store';
 import { SectionHeading } from '../ui/SectionHeading';
 import { Reveal } from '../ui/Reveal';
 import { insert, trackEvent } from '../../lib/store';
@@ -90,12 +90,12 @@ export function Contact() {
           <Reveal>
             <div className="space-y-4 rounded-2xl border border-white/10 bg-white/5 p-8">
               <h3 className="text-xl font-bold text-white">Get in touch</h3>
-              <a href={enrichMailto(`mailto:${profile.email}`)} className="flex items-center gap-3 rounded-xl bg-white/5 p-4 transition hover:bg-white/10"><Mail className="text-indigo-400" /> <span className="text-white">{profile.email}</span></a>
+              <a href={emailHref(`mailto:${profile.email}`)} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl bg-white/5 p-4 transition hover:bg-white/10"><Mail className="text-indigo-400" /> <span className="text-white">{profile.email}</span></a>
               <div className="flex items-center gap-3 rounded-xl bg-white/5 p-4"><Phone className="text-indigo-400" /> <span className="text-white">{profile.phone}</span></div>
               <div className="flex items-center gap-3 rounded-xl bg-white/5 p-4"><MapPin className="text-indigo-400" /> <span className="text-white">{profile.location}</span></div>
               <div className="flex gap-3 pt-2">
                 {socials.map((s) => { const Icon = ICONS[s.icon] ?? Github; return (
-                  <a key={s.id} href={enrichMailto(s.url)} {...(s.url.startsWith('mailto:') ? {} : { target: '_blank', rel: 'noreferrer' })} className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:scale-110 hover:border-indigo-400/50 hover:text-indigo-300"><Icon size={18} /></a>
+                  <a key={s.id} href={emailHref(s.url)} target="_blank" rel="noreferrer" className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:scale-110 hover:border-indigo-400/50 hover:text-indigo-300"><Icon size={18} /></a>
                 ); })}
               </div>
             </div>

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Github, Linkedin, Twitter, Mail, Heart } from 'lucide-react';
 import { useSingleton, useCollection } from '../../hooks/useStore';
-import { enrichMailto } from '../../lib/store';
+import { emailHref } from '../../lib/store';
 
 const ICONS: Record<string, typeof Github> = { Github, Linkedin, Twitter, Mail };
 
@@ -23,7 +23,7 @@ export function Footer() {
           </div>
           <div className="flex gap-3">
             {socials.map((s) => { const Icon = ICONS[s.icon] ?? Github; return (
-              <a key={s.id} href={enrichMailto(s.url)} {...(s.url.startsWith('mailto:') ? {} : { target: '_blank', rel: 'noreferrer' })} className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:scale-110 hover:text-indigo-300"><Icon size={18} /></a>
+              <a key={s.id} href={emailHref(s.url)} target="_blank" rel="noreferrer" className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:scale-110 hover:text-indigo-300"><Icon size={18} /></a>
             ); })}
           </div>
         </div>
