@@ -1,33 +1,39 @@
 // ============================================================================
-// Image Host — uploads images to tmpfiles.org (free, no auth, CORS-enabled)
-// and returns a direct-download URL. This keeps base64 data out of the cloud
-// JSON store so it stays under the size limit.
+// Image Host — uploads images/files to SUPABASE STORAGE (portfolio-assets
+// bucket) and returns a permanent public URL. Files never expire and are
+// secured by RLS (public read, authenticated write).
 // ============================================================================
 
-const UPLOAD_URL = 'https://tmpfiles.org/api/v1/upload';
+import { supabase, isSupabaseConfigured, SUPABASE_BUCKET } from './supabase';
 
 export interface UploadResult {
   url: string;
   error: string | null;
 }
 
-/** Upload an image file and return a direct-access URL. */
-export async function uploadImage(file: File): Promise<UploadResult> {
+function sanitizeName(name: string): string {
+  const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'file';
+  const ext = (name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${base.slice(0, 32)}.${ext}`;
+}
+
+/** Upload a file to Supabase Storage and return its permanent public URL. */
+export async function uploadImage(file: File, folder = 'images'): Promise<UploadResult> {
+  if (!supabase || !isSupabaseConfigured) {
+    return { url: '', error: 'Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.' };
+  }
   try {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch(UPLOAD_URL, { method: 'POST', body: formData });
-    const data = await res.json();
-    if (data.status === 'success' && data.data?.url) {
-      // Convert the page URL to a direct-download URL:
-      // https://tmpfiles.org/xxxx/file.jpg -> https://tmpfiles.org/dl/xxxx/file.jpg
-      const directUrl = data.data.url.replace(
-        'tmpfiles.org/',
-        'tmpfiles.org/dl/'
-      );
-      return { url: directUrl, error: null };
+    const path = `${folder}/${sanitizeName(file.name)}`;
+    const { error: uploadErr } = await supabase.storage
+      .from(SUPABASE_BUCKET)
+      .upload(path, file, { upsert: true, contentType: file.type || 'application/octet-stream' });
+
+    if (uploadErr) {
+      return { url: '', error: uploadErr.message };
     }
-    return { url: '', error: 'Upload failed: ' + (data.message || 'unknown error') };
+
+    const { data } = supabase.storage.from(SUPABASE_BUCKET).getPublicUrl(path);
+    return { url: data.publicUrl, error: null };
   } catch (e) {
     return {
       url: '',

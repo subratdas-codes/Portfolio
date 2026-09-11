@@ -61,8 +61,7 @@ export function ObjectListField({ value, onChange, fields }: { value: Record<str
 }
 
 // ---------------------------------------------------------------- Image upload
-// Uploads to tmpfiles.org (free, CORS-enabled) and stores only the URL.
-// This keeps the cloud JSON small and under the 200K char limit.
+// Uploads to Supabase Storage and stores only the permanent public URL.
 export function ImageField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
@@ -75,7 +74,7 @@ export function ImageField({ value, onChange }: { value: string; onChange: (v: s
     try {
       // 1. Compress client-side (max 800px, JPEG 0.8)
       const compressed = await compressImage(file);
-      // 2. Upload to tmpfiles.org and get a real URL
+      // 2. Upload to Supabase Storage and get a permanent URL
       const result = await uploadImage(compressed);
       if (result.error) {
         setError(result.error);
@@ -112,7 +111,7 @@ export function ImageField({ value, onChange }: { value: string; onChange: (v: s
 }
 
 // ---------------------------------------------------------------- File upload (PDF, images, any file)
-// Also uploads to tmpfiles.org so only URLs are stored.
+// Also uploads to Supabase Storage so only permanent URLs are stored.
 export function FileField({
   value,
   onChange,
@@ -146,8 +145,8 @@ export function FileField({
       if (file.type.startsWith('image/')) {
         fileToUpload = await compressImage(file, 1200, 0.85);
       }
-      // Upload to tmpfiles.org
-      const result = await uploadImage(fileToUpload);
+      // Upload to Supabase Storage
+      const result = await uploadImage(fileToUpload, 'files');
       if (result.error) {
         setError(result.error);
         setUploading(false);
@@ -233,7 +232,7 @@ export function FileField({
         </div>
       )}
 
-      <p className="text-xs text-slate-500">Files are uploaded to a free cloud host. Accepts PDF, JPG, JPEG, PNG, GIF, Excel (XLS/XLSX), CSV, DOC, PPT, TXT.</p>
+      <p className="text-xs text-slate-500">Files are stored securely in Supabase Storage. Accepts PDF, JPG, JPEG, PNG, GIF, Excel (XLS/XLSX), CSV, DOC, PPT, TXT.</p>
     </div>
   );
 }

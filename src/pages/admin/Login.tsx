@@ -8,23 +8,21 @@ import { signIn } from '../../lib/store';
 export function Login() {
   const session = useSession();
   const navigate = useNavigate();
-  const [email, setEmail] = useState('admin@subrat.dev');
-  const [password, setPassword] = useState('admin123');
+  const [email, setEmail] = useState('subratdas219@gmail.com');
+  const [password, setPassword] = useState('');
   const [show, setShow] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (session) return <Navigate to="/admin" replace />;
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError('');
-    setTimeout(() => {
-      const { error } = signIn(email, password);
-      if (error) { setError(error); setLoading(false); }
-      else navigate('/admin');
-    }, 500);
+    const { error } = await signIn(email, password);
+    if (error) { setError(error); setLoading(false); }
+    else navigate('/admin');
   };
 
   return (
@@ -71,9 +69,9 @@ export function Login() {
         </form>
 
         <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-4 text-xs text-slate-400">
-          <p className="font-semibold text-slate-300">Demo Credentials</p>
-          <p className="mt-1">Email: <code className="text-indigo-300">admin@subrat.dev</code></p>
-          <p>Password: <code className="text-indigo-300">admin123</code></p>
+          <p className="font-semibold text-slate-300">Admin Access</p>
+          <p className="mt-1">Email: <code className="text-indigo-300">subratdas219@gmail.com</code></p>
+          <p>Password: set securely in Supabase Auth — not stored in code.</p>
         </div>
 
         <div className="mt-6 text-center text-sm text-slate-500">

@@ -1,29 +1,47 @@
 // ============================================================================
-// Data Store — reactive data layer with CLOUD SYNC.
+// Data Store — reactive data layer with SUPABASE back-end.
 //
 // Architecture:
-//   1. On load: read from localStorage cache (instant display)
-//   2. Background: async-fetch from cloud (textdb.online), update if newer
-//   3. On writes: localStorage immediately + debounced cloud push
+//   1. On load: read from localStorage cache (instant display) — seed if none.
+//   2. Background: pull all tables from Supabase (project-wide source of truth).
+//   3. On writes: localStorage immediately + push the row to Supabase. Everyone
+//      (admin + visitors) reads the same cloud DB, so edits are permanent and
+//      shared across all devices.
+//   4. Realtime: subscribe to Supabase Realtime so live changes from the admin
+//      appear instantly on every open viewer tab — no refresh needed.
 //
-// This means: admin edits on laptop → pushed to cloud → mobile user gets
-// updated data on next load/refresh. All devices share the same cloud DB.
-//
-// The API mirrors Supabase (`from(table).select/insert/update/delete`) so the
-// backend can be swapped to real Supabase by replacing this file + cloud.ts.
+// API mirrors the original store (select/insert/update/delete...) so none of the
+// React components had to change.
 // ============================================================================
 
 import type { Schema, TableName, CollectionTable, SingletonTable } from './types';
 import { seedData } from './seed';
-import { fetchCloud, pushCloud } from './cloud';
+import { supabase, isSupabaseConfigured } from './supabase';
 
 const STORAGE_KEY = 'subrat_portfolio_db_v9';
 const SESSION_KEY = 'subrat_portfolio_session_v1';
 const DRAFT_KEY = 'subrat_portfolio_draft_v1';
+const SEEDED_KEY = 'subrat_portfolio_supabase_seeded_v1';
 
 type Listener = () => void;
 
 export type DB = { [K in TableName]: Schema[K][] } & { _v?: number; _updatedAt?: string };
+
+// Tables that are safe for PUBLIC (anon) reads — everything except private ones.
+const PUBLIC_TABLES: TableName[] = [
+  'profile', 'hero', 'about', 'skills', 'education', 'experience', 'projects',
+  'certificates', 'achievements', 'gallery', 'testimonials', 'blogs',
+  'coding_profiles', 'social_links', 'resume', 'settings', 'sections',
+];
+const PRIVATE_TABLES: TableName[] = ['analytics', 'audit_logs', 'contact_messages'];
+const ALL_TABLES: TableName[] = [...PUBLIC_TABLES, ...PRIVATE_TABLES];
+
+// Tables to push into Supabase during seeding (skip private/demo content).
+const SEED_TABLES: TableName[] = [
+  'profile', 'hero', 'about', 'skills', 'education', 'experience', 'projects',
+  'certificates', 'achievements', 'gallery', 'testimonials', 'blogs',
+  'coding_profiles', 'social_links', 'resume', 'settings', 'sections',
+];
 
 function clone<T>(v: T): T {
   return JSON.parse(JSON.stringify(v));
@@ -34,7 +52,7 @@ function loadDB(): DB {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as DB;
-      if (parsed && parsed.profile && parsed.sections) return parsed;
+      if (parsed && parsed.profile && Array.isArray(parsed.profile) && parsed.sections) return parsed;
     }
   } catch {
     /* ignore */
@@ -53,12 +71,12 @@ function loadDB(): DB {
 let db: DB = loadDB();
 const listeners = new Set<Listener>();
 
-let cloudWriteTimer: ReturnType<typeof setTimeout> | null = null;
 let isCloudSyncing = false;
-let cloudVersion = db._v ?? 0;
+let syncSuccessCount = 0;
 let lastPersistError: string | null = null;
 let lastCloudError: string | null = null;
-let cloudWriteInProgress = false;
+
+const pushQueue: Promise<unknown>[] = [];
 
 function persistLocal() {
   try {
@@ -70,34 +88,8 @@ function persistLocal() {
   }
 }
 
-function scheduleCloudWrite() {
-  if (cloudWriteTimer) clearTimeout(cloudWriteTimer);
-  cloudWriteTimer = setTimeout(async () => {
-    if (cloudWriteInProgress) {
-      // Retry shortly
-      cloudWriteTimer = setTimeout(() => scheduleCloudWrite(), 2000);
-      return;
-    }
-    cloudWriteInProgress = true;
-    cloudVersion += 1;
-    db._v = cloudVersion;
-    db._updatedAt = new Date().toISOString();
-    persistLocal();
-    const ok = await pushCloud(db);
-    if (!ok) {
-      lastCloudError = 'Cloud sync failed — changes saved locally only.';
-      console.warn('[store] Cloud push failed');
-    } else {
-      lastCloudError = null;
-    }
-    cloudWriteInProgress = false;
-    listeners.forEach((l) => l());
-  }, 800);
-}
-
-function emit(pushToCloud = true) {
+function emit() {
   persistLocal();
-  if (pushToCloud) scheduleCloudWrite();
   listeners.forEach((l) => l());
 }
 
@@ -112,37 +104,119 @@ export function getDB(): DB {
   return db;
 }
 
-export function resetDB() {
-  db = seedData() as DB;
-  db._v = cloudVersion + 1;
-  db._updatedAt = new Date().toISOString();
-  emit();
+// ---------------------------------------------------------------- Supabase push
+function pushTable(kind: 'insert' | 'update' | 'delete' | 'upsert' | 'reorder', table: TableName, payload?: any, opts?: any) {
+  if (!supabase) return;
+  const promise = (async () => {
+    const from = table === 'sections' ? 'sections' : table;
+    if (kind === 'delete') {
+      const { error } = await supabase.from(from).delete().eq('id', payload.id);
+      if (error) throw error;
+    } else if (kind === 'upsert') {
+      const { error } = await supabase.from(from).upsert(payload.rows || payload, opts || { onConflict: 'id' });
+      if (error) throw error;
+    } else if (kind === 'reorder') {
+      for (const row of payload) {
+        const { error } = await supabase.from(from).update({ order: row.order }).eq('id', row.id);
+        if (error) throw error;
+      }
+    } else if (kind === 'insert') {
+      const { error } = await supabase.from(from).insert(payload);
+      if (error) throw error;
+    } else {
+      const { error } = await supabase.from(from).update(payload.patch).eq('id', payload.id);
+      if (error) throw error;
+    }
+  })().catch((e) => {
+    console.warn('[store] Supabase push failed', table, e);
+    lastCloudError = e instanceof Error ? e.message : 'Cloud sync failed';
+  });
+  pushQueue.push(promise);
+  promise.finally(() => {
+    const i = pushQueue.indexOf(promise);
+    if (i >= 0) pushQueue.splice(i, 1);
+  });
+  return promise;
+}
+
+/** Await all in-flight writes then do an authoritative full push (silently skips if anon). */
+export async function forceCloudSync(): Promise<boolean> {
+  try {
+    if (pushQueue.length) await Promise.allSettled(pushQueue);
+    if (supabase && isAuthenticated() && isSupabaseConfigured) {
+      await pushAllTables();
+    }
+  } catch (e) {
+    console.warn('[store] Force sync failed', e);
+  }
+  listeners.forEach((l) => l());
+  return !lastCloudError;
+}
+
+/** Push every row we have for every seedable table (used for seeding / reset). */
+async function pushAllTables(): Promise<void> {
+  const jobs = SEED_TABLES.map((t) => {
+    const rows = (db[t] as Schema[typeof t][]) ?? [];
+    if (!rows.length) return Promise.resolve();
+    return supabase!.from(t).upsert(rows as any, { onConflict: 'id' }).then(({ error }) => {
+      if (error) throw error;
+    });
+  });
+  await Promise.all(jobs);
 }
 
 // ---------------------------------------------------------------- Cloud sync
+async function fetchTableRows(t: TableName): Promise<{ table: TableName; rows: any[]; denied: boolean }> {
+  if (!supabase) return { table: t, rows: [], denied: true };
+  const authed = isAuthenticated();
+  if (PRIVATE_TABLES.includes(t) && !authed) return { table: t, rows: [], denied: true };
+  const rowsQuery = supabase.from(t).select('*');
+  const { data, error } = await rowsQuery;
+  if (error) throw error;
+  return { table: t, rows: data as any[] ?? [], denied: false };
+}
+
 export async function syncFromCloud(): Promise<void> {
+  if (!supabase) return;
   if (isCloudSyncing) return;
   isCloudSyncing = true;
   try {
-    const cloud = await fetchCloud();
-    if (cloud && cloud.profile && cloud.sections) {
-      const cloudV = cloud._v ?? 0;
-      if (cloudV > cloudVersion) {
-        cloudVersion = cloudV;
-        db = cloud as DB;
-        persistLocal();
-        listeners.forEach((l) => l());
-        console.log('[store] Synced from cloud v' + cloudV);
+    const authed = isAuthenticated();
+    const tables = authed ? ALL_TABLES : PUBLIC_TABLES;
+    const results = await Promise.allSettled(tables.map(fetchTableRows));
+
+    let anyData = false;
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        const msg = r.reason instanceof Error ? r.reason.message : 'Cloud read failed';
+        lastCloudError = msg;
+        console.warn('[store] read failed', msg);
+        continue;
       }
-    } else {
-      console.log('[store] Cloud empty — initializing with local data');
-      cloudVersion = (db._v ?? 0) + 1;
-      db._v = cloudVersion;
-      db._updatedAt = new Date().toISOString();
-      persistLocal();
-      await pushCloud(db);
+      const { table, rows, denied } = r.value;
+      if (denied) continue;
+      if (rows.length > 0) {
+        (db as any)[table] = rows as any;
+        anyData = true;
+      }
     }
+    if (anyData) persistLocal();
+    syncSuccessCount += 1;
+
+    // First-time seeding: authenticated admin + Supabase is fresh (profile empty).
+    if (authed && !localStorage.getItem(SEEDED_KEY)) {
+      const profileRes = results.find((r) => r.status === 'fulfilled' && r.value.table === 'profile');
+      const isEmpty = !profileRes || (profileRes.status === 'fulfilled' && (profileRes.value.rows ?? []).length === 0);
+      if (isEmpty && isSupabaseConfigured) {
+        await pushAllTables();
+      }
+      localStorage.setItem(SEEDED_KEY, '1');
+    }
+
+    listeners.forEach((l) => l());
   } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Cloud sync failed';
+    lastCloudError = msg;
     console.warn('[store] Cloud sync error:', e);
   } finally {
     isCloudSyncing = false;
@@ -156,24 +230,44 @@ export function startCloudPolling(intervalMs = 15000): () => void {
   return () => clearInterval(timer);
 }
 
-export function getSyncStatus(): { cloudError: string | null; localError: string | null; version: number; syncing: boolean } {
-  return { cloudError: lastCloudError, localError: lastPersistError, version: cloudVersion, syncing: isCloudSyncing };
+export function getSyncStatus() {
+  return { cloudError: lastCloudError, localError: lastPersistError, version: syncSuccessCount, syncing: isCloudSyncing };
 }
 
-/** Force an immediate cloud push (bypasses debounce). */
-export async function forceCloudSync(): Promise<boolean> {
-  if (cloudWriteTimer) clearTimeout(cloudWriteTimer);
-  cloudVersion += 1;
-  db._v = cloudVersion;
-  db._updatedAt = new Date().toISOString();
-  persistLocal();
-  cloudWriteInProgress = true;
-  const ok = await pushCloud(db);
-  cloudWriteInProgress = false;
-  if (!ok) lastCloudError = 'Cloud sync failed.';
-  else lastCloudError = null;
-  listeners.forEach((l) => l());
-  return ok;
+// ---------------------------------------------------------------- Realtime
+let realtimeStarted = false;
+function startRealtime() {
+  if (!supabase || realtimeStarted) return;
+  realtimeStarted = true;
+  const channel = supabase
+    .channel('portfolio-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public' }, (payload: any) => {
+      const table = payload?.table as TableName | undefined;
+      if (!table || !ALL_TABLES.includes(table as TableName)) return;
+      // Re-fetch the single table so the UI reflects the latest server truth,
+      // then notify every listener (open viewer tab updates instantly).
+      fetchTableRows(table as TableName)
+        .then(({ rows, denied }) => {
+          if (denied) return;
+          if (Array.isArray(rows)) {
+            (db as any)[table] = rows as any;
+            persistLocal();
+            listeners.forEach((l) => l());
+          }
+        })
+        .catch((e) => console.warn('[store] realtime refetch failed', table, e));
+    })
+    .subscribe((status) => {
+      if (status !== 'SUBSCRIBED') console.warn('[store] realtime status:', status);
+    });
+  // keep channel referenced so it isn't GC'd — realtime relies on the subscription object
+  (supabase as any).__realtimeChannel = channel;
+}
+
+/** Initialize cloud sync + realtime. Non-blocking. Call on app start. */
+export function initCloud(): void {
+  startRealtime();
+  syncFromCloud();
 }
 
 // ---------------------------------------------------------------- Audit log
@@ -207,9 +301,12 @@ export function getSingleton<K extends SingletonTable>(table: K): Schema[K] {
 export function upsertSingleton<K extends SingletonTable>(table: K, row: Partial<Schema[K]>) {
   const arr = db[table] as Schema[K][];
   if (arr.length === 0) {
-    arr.push({ id: cryptoId(), ...row } as Schema[K]);
+    const fullRow = { id: cryptoId(), ...row } as Schema[K];
+    arr.push(fullRow);
+    pushTable('insert', table, fullRow as any);
   } else {
     arr[0] = { ...arr[0], ...row };
+    pushTable('update', table, { id: (arr[0] as { id: string }).id, patch: row as any });
   }
   audit('upsert', table, (arr[0] as { id: string }).id, 'Updated ' + table);
   emit();
@@ -221,6 +318,7 @@ export function insert<K extends CollectionTable>(
 ): Schema[K] {
   const newRow = { ...row, id: row.id ?? cryptoId() } as Schema[K];
   (db[table] as Schema[K][]).unshift(newRow);
+  pushTable('insert', table, newRow as any);
   audit('insert', table, (newRow as { id: string }).id, 'Created ' + table);
   emit();
   return clone(newRow);
@@ -235,6 +333,7 @@ export function update<K extends CollectionTable>(
   const idx = arr.findIndex((r) => (r as { id: string }).id === id);
   if (idx >= 0) {
     arr[idx] = { ...arr[idx], ...patch };
+    pushTable('update', table, { id, patch: patch as any });
     audit('update', table, id, 'Updated ' + table);
     emit();
   }
@@ -245,6 +344,7 @@ export function remove<K extends CollectionTable>(table: K, id: string): void {
   const idx = arr.findIndex((r) => (r as { id: string }).id === id);
   if (idx >= 0) {
     arr.splice(idx, 1);
+    pushTable('delete', table, { id });
     audit('delete', table, id, 'Deleted ' + table);
     emit();
   }
@@ -254,10 +354,14 @@ export function reorder<K extends CollectionTable>(table: K, ids: string[]): voi
   const arr = db[table] as Schema[K][];
   const map = new Map(arr.map((r) => [(r as { id: string }).id, r]));
   const ordered: Schema[K][] = [];
+  const changed: { id: string; order: number }[] = [];
   ids.forEach((id, i) => {
     const r = map.get(id);
     if (r) {
-      if ('order' in r) (r as { order: number }).order = i;
+      if ('order' in r) {
+        (r as { order: number }).order = i;
+        changed.push({ id, order: i });
+      }
       ordered.push(r);
     }
   });
@@ -265,6 +369,7 @@ export function reorder<K extends CollectionTable>(table: K, ids: string[]): voi
     if (!ids.includes((r as { id: string }).id)) ordered.push(r);
   });
   (db[table] as Schema[K][]) = ordered;
+  if (changed.length) pushTable('reorder', table, changed as any);
   audit('reorder', table, 'multi', 'Reordered sections');
   emit();
 }
@@ -274,15 +379,18 @@ export function trackEvent(
   type: 'page_view' | 'project_view' | 'resume_download' | 'contact' | 'assistant' | 'click',
   meta = ''
 ) {
-  db.analytics.unshift({
+  const event = {
     id: cryptoId(),
     type,
-    referrer: document.referrer || 'direct',
-    path: location.pathname,
+    referrer: typeof document !== 'undefined' ? document.referrer || 'direct' : 'direct',
+    path: typeof location !== 'undefined' ? location.pathname : '/',
     meta,
     created_at: new Date().toISOString(),
-  });
+  };
+  db.analytics.unshift(event);
   if (db.analytics.length > 1000) db.analytics.length = 1000;
+
+  // Update counters locally (mirror what the cloud will record).
   if (type === 'project_view' && meta) {
     const p = db.projects.find((x) => x.id === meta || x.slug === meta);
     if (p) p.views += 1;
@@ -290,16 +398,31 @@ export function trackEvent(
   if (type === 'resume_download') {
     if (db.resume[0]) db.resume[0].downloads += 1;
   }
-  // Analytics sync to cloud but with lighter debounce
+
+  if (supabase) {
+    // Visitors can insert into analytics (public insert policy in schema).
+    supabase.from('analytics').insert(event as any).then(({ error }) => {
+      if (error) console.warn('[store] analytics insert failed (ignored)', error.message);
+    });
+
+    // Increment permanent counters using a secure Postgres function (RPC) so
+    // anonymous visitors can bump view counts without table-write permissions.
+    if (type === 'project_view' && meta) {
+      supabase.rpc('incr_project_views', { p_slug: meta }).then(({ error }) => {
+        if (error) console.warn('[store] view increment failed (ignored)', error.message);
+      });
+    }
+    if (type === 'resume_download') {
+      supabase.rpc('incr_resume_downloads', {}).then(({ error }) => {
+        if (error) console.warn('[store] download count failed (ignored)', error.message);
+      });
+    }
+  }
+
   emit();
 }
 
 // ---------------------------------------------------------------- Draft/Publish
-export interface DraftState {
-  sections: Schema['sections'][];
-  savedAt: string;
-}
-
 export function saveDraft(sections: Schema['sections'][]): void {
   try {
     localStorage.setItem(
@@ -311,7 +434,7 @@ export function saveDraft(sections: Schema['sections'][]): void {
   }
 }
 
-export function loadDraft(): DraftState | null {
+export function loadDraft(): { sections: Schema['sections'][]; savedAt: string } | null {
   try {
     const raw = localStorage.getItem(DRAFT_KEY);
     return raw ? JSON.parse(raw) : null;
@@ -328,13 +451,30 @@ export function publishDraft(sections: Schema['sections'][]): void {
   } catch {
     /* ignore */
   }
+  if (supabase) {
+    // Replace the sections table in the cloud with the published layout.
+    supabase.from('sections').delete().neq('id', '00000000-0000-0000-0000-000000000000').then(async () => {
+      if (sections.length) {
+        const { error } = await supabase!.from('sections').upsert(sections as any, { onConflict: 'id' });
+        if (error) console.warn('[store] publish push failed', error.message);
+      }
+    });
+  }
   emit();
 }
 
-// ---------------------------------------------------------------- Auth
-const ADMIN_EMAIL = 'admin@subrat.dev';
-const ADMIN_PASSWORD = 'admin123';
+// ---------------------------------------------------------------- Reset
+export function resetDB() {
+  db = seedData() as DB;
+  db._v = syncSuccessCount + 1;
+  db._updatedAt = new Date().toISOString();
+  if (supabase && isAuthenticated()) {
+    pushAllTables().then(() => emit());
+  }
+  emit();
+}
 
+// ---------------------------------------------------------------- Auth (Supabase)
 export interface Session {
   email: string;
   loggedAt: string;
@@ -349,39 +489,42 @@ export function getSession(): Session | null {
   }
 }
 
-export function signIn(email: string, password: string): { error: string | null } {
-  if (email.trim().toLowerCase() === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
-    const session: Session = { email: ADMIN_EMAIL, loggedAt: new Date().toISOString() };
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    audit('login', 'auth', 'admin', 'Admin signed in');
-    emit();
-    return { error: null };
+export function isAuthenticated(): boolean {
+  return getSession() !== null;
+}
+
+export async function signIn(email: string, password: string): Promise<{ error: string | null }> {
+  if (!supabase) {
+    return { error: 'Backend not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.' };
   }
-  return { error: 'Invalid credentials. Use admin@subrat.dev / admin123' };
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  if (error || !data.user) {
+    return { error: error?.message ?? 'Invalid credentials.' };
+  }
+  const session: Session = { email: data.user.email ?? email, loggedAt: new Date().toISOString() };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  audit('login', 'auth', 'admin', 'Admin signed in');
+  emit();
+  // Pull the full dataset (incl. private tables) for this session.
+  syncFromCloud();
+  return { error: null };
 }
 
 export function signOut() {
   localStorage.removeItem(SESSION_KEY);
+  if (supabase) {
+    supabase.auth.signOut().catch(() => {});
+  }
   audit('logout', 'auth', 'admin', 'Admin signed out');
   emit();
 }
 
 export function resetPassword(email: string): { error: string | null } {
-  if (email.trim().toLowerCase() === ADMIN_EMAIL) {
-    return { error: null };
-  }
-  return { error: 'No account found for that email.' };
-}
-
-export function isAuthenticated(): boolean {
-  return getSession() !== null;
+  if (!supabase) return { error: 'Backend not configured.' };
+  supabase.auth.resetPasswordForEmail(email).catch((e) => console.warn(e));
+  return { error: null };
 }
 
 export function getPersistError(): string | null {
   return lastPersistError;
-}
-
-/** Initialize cloud sync — call on app start. Non-blocking. */
-export function initCloud(): void {
-  syncFromCloud();
 }
