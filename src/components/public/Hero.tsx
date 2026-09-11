@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Download, Mail, Github, Linkedin, Twitter, MapPin, Circle } from 'lucide-react';
 import { useSingleton, useCollection } from '../../hooks/useStore';
 import { ParticleField } from '../ui/ParticleField';
-import { trackEvent } from '../../lib/store';
+import { trackEvent, enrichMailto } from '../../lib/store';
 
 const ICONS: Record<string, typeof Github> = { Github, Linkedin, Twitter, Mail };
 
@@ -96,7 +96,7 @@ export function Hero() {
             {socials.map((s) => {
               const Icon = ICONS[s.icon] ?? Github;
               return (
-                <a key={s.id} href={s.url} {...(s.url.startsWith('mailto:') ? {} : { target: '_blank', rel: 'noreferrer' })}
+                <a key={s.id} href={enrichMailto(s.url)} {...(s.url.startsWith('mailto:') ? {} : { target: '_blank', rel: 'noreferrer' })}
                   className="grid h-11 w-11 place-items-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:scale-110 hover:border-indigo-400/50 hover:text-indigo-300">
                   <Icon size={20} />
                 </a>

@@ -24,6 +24,16 @@ const DRAFT_KEY = 'subrat_portfolio_draft_v1';
 const SEEDED_KEY = 'subrat_portfolio_supabase_seeded_v1';
 const ORDER_KEY = 'subrat_portfolio_order_v1';
 
+/** Ensure a mailto: URL always carries a prefilled subject + body.
+ *  Leaves non-mailto links untouched, and never duplicates ?params. */
+export function enrichMailto(url: string): string {
+  if (!url || !url.toLowerCase().startsWith('mailto:')) return url;
+  if (url.includes('?')) return url;
+  const subject = encodeURIComponent("Let's work together");
+  const body = encodeURIComponent(["Hi Subrat,", '', "I came across your portfolio and I'd like to share an opportunity.", '', 'Best regards'].join('\n'));
+  return `${url}?subject=${subject}&body=${body}`;
+}
+
 type Listener = () => void;
 
 export type DB = { [K in TableName]: Schema[K][] } & { _v?: number; _updatedAt?: string };
