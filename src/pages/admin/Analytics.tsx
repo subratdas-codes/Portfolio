@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3 } from 'lucide-react';
+import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle } from 'lucide-react';
 import { useCollection, useSingleton } from '../../hooks/useStore';
 
 export function Analytics() {
@@ -24,6 +24,23 @@ export function Analytics() {
     analytics.forEach((a) => { const r = a.referrer || 'direct'; map[r] = (map[r] || 0) + 1; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [analytics]);
+
+  // per-project "who viewed": each recorded project_view event with its referrer
+  const projectViewDetails = useMemo(() => {
+    const titleBySlug = new Map(projects.map((p) => [p.slug, p.title]));
+    return analytics
+      .filter((a) => a.type === 'project_view')
+      .slice()
+      .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
+      .slice(0, 30)
+      .map((e) => ({ ...e, project: titleBySlug.get(e.meta) || e.meta || '(unknown project)' }));
+  }, [analytics, projects]);
+
+  // latest assistant questions visitors asked the chat assistant
+  const assistantQuestions = useMemo(
+    () => analytics.filter((a) => a.type === 'assistant').slice().sort((a, b) => (b.created_at < a.created_at ? -1 : 1)).slice(0, 20),
+    [analytics]
+  );
 
   // last 14 days
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -96,6 +113,55 @@ export function Analytics() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="flex items-center gap-2 font-semibold text-white"><MapPin size={16} className="text-cyan-400" /> Who Viewed Projects (Latest 30)</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
+                <th className="py-2 pr-4 font-medium">Project</th>
+                <th className="py-2 pr-4 font-medium">Referred From</th>
+                <th className="hidden py-2 pr-4 font-medium md:table-cell">Path</th>
+                <th className="py-2 font-medium"><Clock size={11} className="inline" /> When</th>
+              </tr>
+            </thead>
+            <tbody>
+              {projectViewDetails.map((e, i) => (
+                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
+                  <td className="py-2 pr-4 font-medium text-white">{e.project}</td>
+                  <td className="max-w-[180px] truncate py-2 pr-4 text-slate-400">{e.referrer}</td>
+                  <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 md:table-cell">{e.path}</td>
+                  <td className="whitespace-nowrap py-2 text-slate-500">{new Date(e.created_at).toLocaleString()}</td>
+                </tr>
+              ))}
+              {projectViewDetails.length === 0 && (
+                <tr><td colSpan={4} className="py-6 text-center text-slate-500">No project views recorded yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <MessageCircle size={16} className="text-violet-400" />
+          <h3 className="font-semibold text-white">Assistant Inquiries (Latest 20)</h3>
+        </div>
+        <div className="space-y-2">
+          {assistantQuestions.map((e) => (
+            <div key={e.id} className="flex items-start justify-between gap-4 rounded-xl bg-white/[0.03] px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm text-white">{e.meta || '(empty question)'}</p>
+                <p className="text-xs text-slate-500">referred from {e.referrer} · {new Date(e.created_at).toLocaleString()}</p>
+              </div>
+            </div>
+          ))}
+          {assistantQuestions.length === 0 && <p className="text-sm text-slate-500">No assistant chats yet.</p>}
         </div>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, Pencil, Trash2, Search, X, AlertTriangle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Search, X, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
 import { insert, update, remove, getPersistError, forceCloudSync } from '../../lib/store';
 import { Modal } from '../ui/Modal';
@@ -25,9 +25,10 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
   const [isNew, setIsNew] = useState(false);
   const [saveError, setSaveError] = useState('');
 
-  const filtered = query && searchKeys
+  const filtered = (query && searchKeys
     ? rows.filter((r) => searchKeys.some((k) => String((r as unknown as Record<string, unknown>)[k] ?? '').toLowerCase().includes(query.toLowerCase())))
-    : rows;
+    : rows
+  ).sort((a, b) => ((a as Row).sort_order ?? 0) - ((b as Row).sort_order ?? 0));
 
   const startNew = () => {
     const blank: Row = { created_at: new Date().toISOString() };
@@ -63,6 +64,21 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
       remove(table, id);
       await forceCloudSync();
     }
+  };
+
+  const moveRow = async (id: string, direction: 'up' | 'down') => {
+    const sorted = [...rows].sort((a, b) => ((a as Row).sort_order ?? 0) - ((b as Row).sort_order ?? 0));
+    const idx = sorted.findIndex((r) => (r as Row).id === id);
+    if (idx < 0) return;
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= sorted.length) return;
+    const a = sorted[idx] as Row;
+    const b = sorted[targetIdx] as Row;
+    const aOrder = a.sort_order ?? idx;
+    const bOrder = b.sort_order ?? targetIdx;
+    update(table, a.id, { sort_order: bOrder } as any);
+    update(table, b.id, { sort_order: aOrder } as any);
+    await forceCloudSync();
   };
 
   const setVal = (name: string, value: any) => setEditing((prev) => (prev ? { ...prev, [name]: value } : prev));
@@ -110,6 +126,8 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
                   ))}
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-1">
+                      <button onClick={() => moveRow((row as Row).id, 'up')} title="Move up" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><ChevronUp size={15} /></button>
+                      <button onClick={() => moveRow((row as Row).id, 'down')} title="Move down" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><ChevronDown size={15} /></button>
                       <button onClick={() => startEdit(row as Row)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-indigo-300"><Pencil size={15} /></button>
                       <button onClick={() => del((row as Row).id)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-rose-400"><Trash2 size={15} /></button>
                     </div>

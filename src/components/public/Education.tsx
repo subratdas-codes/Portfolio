@@ -4,7 +4,8 @@ import { Reveal } from '../ui/Reveal';
 import { GraduationCap, School } from 'lucide-react';
 
 export function Education() {
-  const items = useCollection('education');
+  const raw = useCollection('education');
+  const items = [...raw].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   return (
     <section id="education" className="relative py-24">
       <div className="mx-auto max-w-4xl px-6">

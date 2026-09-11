@@ -35,22 +35,33 @@ export function Contact() {
     insert('contact_messages', { ...form, read: false, starred: false, created_at: new Date().toISOString() });
     trackEvent('contact', 'new message from ' + form.name);
 
-    // Email notification is handled via a hidden form submission
-    // to formsubmit.co — no API key needed.
+    // 2. Email the details straight to the admin inbox via Formsubmit.co.
+    //    Free, no API key. Uses the AJAX endpoint so we can read the result.
+    //    (First ever submission triggers a one-time "confirm your email"
+    //    activation link in the inbox; after that every new contact is
+    //    delivered automatically.)
     try {
-      const formData = new FormData();
-      formData.append('name', form.name);
-      formData.append('email', form.email);
-      formData.append('subject', form.subject);
-      formData.append('message', form.message);
-      formData.append('_template', 'table');
-      fetch('https://formsubmit.co/subratdas219@gmail.com', {
+      const body = new FormData();
+      body.append('name', form.name);
+      body.append('email', form.email);
+      body.append('subject', form.subject || '(no subject)');
+      body.append('message', form.message);
+      body.append('_template', 'table');
+      body.append('_captcha', 'false');
+      const res = await fetch('https://formsubmit.co/ajax/subratdas219@gmail.com', {
         method: 'POST',
-        body: formData,
-        mode: 'no-cors',
+        body,
+        headers: { Accept: 'application/json' },
       });
-    } catch {
-      /* notification is best-effort */
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        if (data && data.success === 'false') console.warn('[contact] Formsubmit:', data.message);
+      } else {
+        console.warn('[contact] Formsubmit responded', res.status);
+      }
+    } catch (e) {
+      // Email is best-effort; the message is safely stored in the dashboard.
+      console.warn('[contact] Email notification failed (message still saved):', e);
     }
 
     // Brief delay for UX

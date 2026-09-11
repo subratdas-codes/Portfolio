@@ -64,6 +64,7 @@ export interface Education {
   end_date: string;
   cgpa: string;
   description: string;
+  sort_order: number;
 }
 
 export interface Experience {

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Mail, Star, Trash2, Reply, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
 import { update, remove } from '../../lib/store';
@@ -6,11 +7,24 @@ import { Modal } from '../../components/ui/Modal';
 
 export function Messages() {
   const messages = useCollection('contact_messages');
+  const location = useLocation();
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'unread' | 'starred'>('all');
   const [active, setActive] = useState<string | null>(null);
   const [reply, setReply] = useState('');
   const [replyStatus, setReplyStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+
+  // Open a specific message when arriving from the dashboard's "Recent Messages".
+  const openedFromNav = useRef(false);
+  useEffect(() => {
+    if (openedFromNav.current) return;
+    const id = (location.state as { openMessage?: string } | null)?.openMessage;
+    if (id && messages.some((x) => x.id === id)) {
+      openedFromNav.current = true;
+      open(id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, location.state]);
 
   const filtered = messages.filter((m) => {
     if (filter === 'unread' && m.read) return false;

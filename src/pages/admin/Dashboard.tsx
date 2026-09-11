@@ -22,12 +22,12 @@ export function Dashboard() {
   const assistantUses = analytics.filter((a) => a.type === 'assistant').length;
 
   const stats = [
-    { label: 'Page Views', value: pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500' },
-    { label: 'Project Views', value: projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500' },
-    { label: 'Resume Downloads', value: resumeDls, icon: Download, color: 'from-emerald-500 to-green-500' },
-    { label: 'Unread Messages', value: unread, icon: Mail, color: 'from-amber-500 to-orange-500' },
-    { label: 'Assistant Chats', value: assistantUses, icon: Bot, color: 'from-violet-500 to-fuchsia-500' },
-    { label: 'Total Projects', value: projects.length, icon: FileText, color: 'from-rose-500 to-pink-500' },
+    { label: 'Page Views', value: pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500', to: '/admin/analytics' },
+    { label: 'Project Views', value: projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500', to: '/admin/analytics' },
+    { label: 'Resume Downloads', value: resumeDls, icon: Download, color: 'from-emerald-500 to-green-500', to: '/admin/analytics' },
+    { label: 'Unread Messages', value: unread, icon: Mail, color: 'from-amber-500 to-orange-500', to: '/admin/messages' },
+    { label: 'Assistant Chats', value: assistantUses, icon: Bot, color: 'from-violet-500 to-fuchsia-500', to: '/admin/analytics' },
+    { label: 'Total Projects', value: projects.length, icon: FileText, color: 'from-rose-500 to-pink-500', to: '/admin/projects' },
   ];
 
   const quickLinks = [
@@ -63,16 +63,18 @@ export function Dashboard() {
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {stats.map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}
-            className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5">
-            <div className={`absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br ${s.color} opacity-20 blur-2xl`} />
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-3xl font-bold text-white">{s.value}</div>
-                <div className="text-sm text-slate-400">{s.label}</div>
+          <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+            <Link to={s.to} className="group relative block h-full overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-indigo-400/40 hover:bg-white/10">
+              <div className={`absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br ${s.color} opacity-20 blur-2xl`} />
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-3xl font-bold text-white">{s.value}</div>
+                  <div className="text-sm text-slate-400">{s.label}</div>
+                </div>
+                <div className={`grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br ${s.color}`}><s.icon size={22} className="text-white" /></div>
               </div>
-              <div className={`grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br ${s.color}`}><s.icon size={22} className="text-white" /></div>
-            </div>
+              <ArrowRight size={14} className="absolute bottom-4 right-5 text-slate-600 transition group-hover:translate-x-1 group-hover:text-indigo-300" />
+            </Link>
           </motion.div>
         ))}
       </div>
@@ -94,7 +96,7 @@ export function Dashboard() {
           <div className="mb-4 flex items-center gap-2"><Clock size={18} className="text-cyan-400" /><h3 className="font-semibold text-white">Recent Messages</h3></div>
           <div className="space-y-3">
             {messages.slice(0, 4).map((m) => (
-              <Link key={m.id} to="/admin/messages" className="block rounded-lg bg-white/5 p-3 transition hover:bg-white/10">
+              <Link key={m.id} to="/admin/messages" state={{ openMessage: m.id }} className="block rounded-lg bg-white/5 p-3 transition hover:bg-white/10">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-white">{m.name}</span>
                   {!m.read && <span className="h-2 w-2 rounded-full bg-rose-400" />}
