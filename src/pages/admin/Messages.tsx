@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Mail, Star, Trash2, Reply, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink, RefreshCw, User } from 'lucide-react';
+import { Mail, Star, Trash2, Reply, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink, RefreshCw, User, AlertTriangle } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
 import { update, remove, insertLocal, cryptoId, syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
@@ -14,7 +14,12 @@ function escapeHtml(s: string): string {
 async function getAdminToken(): Promise<string | null> {
   if (!supabase || !isSupabaseConfigured) return null;
   try {
-    const { data } = await supabase.auth.getSession();
+    let { data } = await supabase.auth.getSession();
+    if (!data.session) {
+      // Expired / missing session — try one refresh before giving up.
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      if (refreshed.session) data = { session: refreshed.session };
+    }
     return data.session?.access_token ?? null;
   } catch {
     return null;
@@ -30,6 +35,7 @@ export function Messages() {
   const [active, setActive] = useState<string | null>(null);
   const [reply, setReply] = useState('');
   const [replyStatus, setReplyStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [replyError, setReplyError] = useState<string | null>(null);
   const [replying, setReplying] = useState(false);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
 
@@ -123,28 +129,32 @@ export function Messages() {
       + '<p style="color:#64748b;font-size:12px;margin:16px 0 0">You received this in reply to your message sent through subratdas.vercel.app.</p>'
       + '</div>';
     const token = await getAdminToken();
-    fetch('/api/send-email', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        to: m.email,
-        subject,
-        html: bodyHtml,
-        fromName: 'Subrat Das',
-        replyTo: 'subratdas219@gmail.com',
-        threadId: active,
-      }),
-    })
-      .catch((err) => {
-        console.warn('[reply] Email send failed (reply saved in dashboard):', err);
-        const mailto = `mailto:${m.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(replyBody + '\n\n---\nBest regards,\nSubrat Das')}`;
-        const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: m.email, su: subject, body: replyBody + '\n\n---\nBest regards,\nSubrat Das' }).toString()}`;
-        window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank');
-      })
-      .then(() => { setReplying(false); });
+    try {
+      const resp = await fetch('/api/send-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          to: m.email,
+          subject,
+          html: bodyHtml,
+          fromName: 'Subrat Das',
+          replyTo: 'subratdas219@gmail.com',
+          threadId: active,
+        }),
+      });
+      const data = await resp.json().catch(() => null);
+      if (!resp.ok) throw new Error(data?.error || `Email failed (${resp.status})`);
+    } catch (err) {
+      console.warn('[reply] Email send failed (reply saved in dashboard):', err);
+      setReplyError(err instanceof Error ? err.message : 'Email send failed');
+      const mailto = `mailto:${m.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(replyBody + '\n\n---\nBest regards,\nSubrat Das')}`;
+      const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: m.email, su: subject, body: replyBody + '\n\n---\nBest regards,\nSubrat Das' }).toString()}`;
+      window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank');
+    }
+    setReplying(false);
 
     // Keep modal open so the user can keep chatting on the same thread.
   };
@@ -301,7 +311,16 @@ export function Messages() {
             {replyStatus === 'sent' && (
               <div className="flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                 <CheckCircle2 size={18} />
-                <span>Reply sent to {activeMsg.email}!</span>
+                <span>Reply saved in conversation.</span>
+              </div>
+            )}
+
+            {replyError && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <span>
+                  Reply saved, but the email to <b>{activeMsg.email}</b> failed{replyError ? `: ${replyError}` : ''}. A Gmail compose window has opened so you can send it manually.
+                </span>
               </div>
             )}
 

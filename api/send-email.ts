@@ -120,8 +120,16 @@ export default async function handler(req: any, res: any) {
   if (subject.length > 500 || html.length > 100_000) {
     return json(res, 413, { error: 'Payload too large' });
   }
+  // Allow both `user@host.com` and `"Display Name" <user@host.com>` forms.
   const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRe.test(to) || (body.replyTo && !emailRe.test(body.replyTo)) || (body.replyTo && body.replyTo.length > 254)) {
+  const nameEmailRe = /^"[^"]+"\s*<([^>]+)>\s*$/;
+  const normalizeEmail = (v: string) => {
+    const m = nameEmailRe.exec(v);
+    return m ? m[1].trim() : v.trim();
+  };
+  const toEmail = normalizeEmail(to);
+  const replyToEmail = body.replyTo ? normalizeEmail(body.replyTo) : '';
+  if (!emailRe.test(toEmail) || (replyToEmail && !emailRe.test(replyToEmail)) || (replyToEmail && replyToEmail.length > 254)) {
     return json(res, 400, { error: 'Invalid email address' });
   }
 
@@ -131,19 +139,19 @@ export default async function handler(req: any, res: any) {
     ? await verifyAdmin(bearer.slice(7).trim())
     : false;
 
-  if (to.toLowerCase() !== ADMIN_EMAIL.toLowerCase() && !isAdmin) {
+  if (toEmail.toLowerCase() !== ADMIN_EMAIL.toLowerCase() && !isAdmin) {
     return json(res, 403, { error: 'Not authorized to send to that address' });
   }
 
   const fromName = (body.fromName ?? 'Subrat Das').slice(0, 80).replace(/[<>\r\n]/g, '');
   const mailMsg: Record<string, unknown> = {
     from: `"${fromName}" <${ADMIN_EMAIL}>`,
-    to,
+    to: toEmail,
     subject,
     html,
     text: htmlToText(html),
   };
-  if (body.replyTo) mailMsg.replyTo = body.replyTo;
+  if (replyToEmail) mailMsg.replyTo = replyToEmail;
   if (body.threadId) {
     mailMsg.messageId = `<portfolio-${body.threadId}-${Date.now()}@subratdas.vercel.app>`;
   }
