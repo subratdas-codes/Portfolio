@@ -102,21 +102,19 @@ export function Messages() {
       created_at: new Date().toISOString(),
     };
 
-    // 1. Persist locally + to Supabase (Realtime broadcasts it to other admin tabs).
+    // 1. Persist locally always; to Supabase (Realtime) best-effort. A failed
+    //    insert (e.g. expired session) must NOT block the actual email send.
     try {
       if (supabase && isSupabaseConfigured) {
         const { error } = await supabase.from('contact_replies').insert(replyRow);
-        if (error) throw error;
+        if (error) console.warn('[reply] Supabase insert failed (email will still send):', error);
       }
-      insertLocal('contact_replies', replyRow);
-      setReplyStatus('sent');
-      setReply('');
     } catch (e) {
-      console.warn('[reply] Save failed:', e);
-      setReplyStatus('idle');
-      setReplying(false);
-      return;
+      console.warn('[reply] Supabase insert failed (email will still send):', e);
     }
+    insertLocal('contact_replies', replyRow);
+    setReplyStatus('sent');
+    setReply('');
 
     // 2. Email it directly to the visitor — background, never blocks the UI.
     const subject = `Re: [Portfolio #${active}] ${m.subject || 'Your message to Subrat Das'}`;

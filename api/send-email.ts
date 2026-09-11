@@ -163,7 +163,9 @@ export default async function handler(req: any, res: any) {
     return json(res, 403, { error: 'Not authorized to send to that address' });
   }
 
-  const fromName = (body.fromName ?? 'Subrat Das').slice(0, 80).replace(/[<>\r\n]/g, '');
+  // From display name can carry the visitor identity (e.g. 'Abhisek <user@x.com>');
+  // strip only control chars (header injection) — nodemailer quotes the rest.
+  const fromName = (body.fromName ?? 'Subrat Das').slice(0, 80).replace(/[\r\n]/g, '');
   const mailMsg: Record<string, unknown> = {
     from: `"${fromName}" <${ADMIN_EMAIL}>`,
     to: toEmail,

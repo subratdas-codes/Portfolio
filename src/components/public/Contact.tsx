@@ -69,8 +69,8 @@ export function Contact() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: profile.email || 'subratdas219@gmail.com',
-          subject: `[Portfolio #${row.id}] ${threadSubject}`,
-          fromName: row.name,
+          subject: `[Portfolio #${row.id}] New message from ${row.name}: ${threadSubject}`,
+          fromName: `${row.name} <${row.email}>`,
           html:
             '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">'
             + '<h2 style="margin:0 0 4px">New message from your portfolio</h2>'
@@ -78,7 +78,7 @@ export function Contact() {
             + `<hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px"/>`
             + (threadSubject ? `<p style="margin:0 0 12px"><b>Subject:</b> ${escapeHtml(threadSubject)}</p>` : '')
             + `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;white-space:pre-wrap;color:#0f172a">${escapeHtml(row.message)}</div>`
-            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Reply to this email to write back to ${escapeHtml(row.name)} — the reply is saved to the conversation in your admin dashboard.</p>`
+            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Reply to this email and it will be delivered to ${escapeHtml(row.name)} at ${escapeHtml(row.email)} — the reply is also saved to the conversation in your admin dashboard.</p>`
             + '</div>',
           replyTo: `"${row.name}" <${row.email}>`,
         }),
