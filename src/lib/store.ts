@@ -402,6 +402,25 @@ export function getCollectionOrder(table: CollectionTable): string[] {
 
 /** Persist a full collection order: updates local db order + order map, then
  *  best-effort writes sort_order to the cloud (works once the column exists). */
+export function setCollectionOrder(table: TableName, ids: string[]): void {
+  const arr = db[table] as Schema[TableName][];
+  const map = new Map(arr.map((r) => [(r as { id: string }).id, r] as [string, Schema[TableName]]));
+  const ordered: Schema[TableName][] = [];
+  ids.forEach((id) => {
+    const r = map.get(id);
+    if (r) ordered.push(r);
+  });
+  arr.forEach((r) => { if (!ids.includes((r as { id: string }).id)) ordered.push(r); });
+  // Reflect the new order in each row's local sort_order as well, so components
+  // that sort by sort_order (e.g. Education) follow the admin's choice.
+  ordered.forEach((r, i) => { (r as { sort_order?: number }).sort_order = i; });
+  (db[table] as Schema[TableName][]) = ordered;
+  let any = false;
+  ordered.forEach((r, i) => { pushTable('update', table, { id: (r as { id: string }).id, patch: { sort_order: i } as any }, undefined, true); any = true; });
+  void any;
+  audit('reorder', table, 'multi', 'Reordered ' + table);
+  emit();
+}
 export function setCollectionOrder<K extends CollectionTable>(table: K, ids: string[]): void {
   const arr = db[table] as Schema[K][];
   const map = new Map(arr.map((r) => [(r as { id: string }).id, r]));
