@@ -23,7 +23,7 @@ export function Education() {
                   <div className={`rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:border-indigo-400/40 hover:bg-white/10 sm:w-1/2 ${i % 2 ? 'sm:mr-8' : 'sm:ml-8'}`}>
                     <div className="flex items-start gap-4">
                       {e.logo_url ? (
-                        <img src={e.logo_url} alt={e.institution} className="h-12 w-auto max-w-24 shrink-0 rounded-lg bg-white/90 object-contain p-1" onError={(ev) => { ev.currentTarget.style.display = 'none'; ev.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
+                        <img src={e.logo_url} alt={e.institution} className="h-12 w-auto max-w-24 shrink-0 rounded-lg object-contain" onError={(ev) => { ev.currentTarget.style.display = 'none'; ev.currentTarget.nextElementSibling?.classList.remove('hidden'); }} />
                       ) : null}
                       {/* Fallback icon when no logo */}
                       <div className={`grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-gradient-to-br from-indigo-500/30 to-cyan-400/30 ${e.logo_url ? 'hidden' : ''}`}>
