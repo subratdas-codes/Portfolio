@@ -111,7 +111,7 @@ export function AdminLayout() {
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <ShieldCheck size={16} className="text-emerald-400" /> Secure Admin Session
             <span className={`ml-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${cloudOk ? 'bg-emerald-500/10 text-emerald-300' : 'bg-amber-500/10 text-amber-300'}`}>
-              {cloudOk ? <><Cloud size={11} /> Cloud Synced</> : <><CloudOff size={11} /> Local Mode</>}
+              {cloudOk ? <><Cloud size={11} /> Cloud Ready</> : <><CloudOff size={11} /> Local Mode</>}
             </span>
           </div>
           <div className="text-xs text-slate-500">{session.email}</div>
