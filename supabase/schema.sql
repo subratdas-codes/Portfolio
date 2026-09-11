@@ -232,7 +232,8 @@ create table if not exists public.resume (
   file_url text,
   file_size text,
   uploaded_at timestamptz default now(),
-  downloads int default 0
+  downloads int default 0,
+  views int default 0
 );
 
 -- ---------------------------------------------------------------------------
@@ -327,11 +328,21 @@ language sql
 security definer
 set search_path = public
 as $$
-  update public.resume set downloads = downloads + 1;
+  update public.resume set downloads = downloads + 1 where id = (select id from public.resume order by uploaded_at desc nulls last limit 1);
+$$;
+
+create or replace function public.incr_resume_views()
+returns void
+language sql
+security definer
+set search_path = public
+as $$
+  update public.resume set views = views + 1 where id = (select id from public.resume order by uploaded_at desc nulls last limit 1);
 $$;
 
 grant execute on function public.incr_project_views(text) to anon, authenticated;
 grant execute on function public.incr_resume_downloads() to anon, authenticated;
+grant execute on function public.incr_resume_views() to anon, authenticated;
 
 -- ===========================================================================
 -- ROW LEVEL SECURITY

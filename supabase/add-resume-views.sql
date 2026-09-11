@@ -9,7 +9,7 @@ LANGUAGE sql
 SECURITY DEFINER
 SET search_path = public
 AS $$
-  UPDATE public.resume SET views = views + 1;
+  UPDATE public.resume SET views = views + 1 WHERE id = (SELECT id FROM public.resume ORDER BY uploaded_at DESC NULLS LAST LIMIT 1);
 $$;
 
 GRANT EXECUTE ON FUNCTION public.incr_resume_views() TO anon, authenticated;
