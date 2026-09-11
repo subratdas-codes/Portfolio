@@ -201,6 +201,7 @@ export async function syncFromCloud(): Promise<void> {
       }
     }
     if (anyData) persistLocal();
+    lastCloudError = null;
     syncSuccessCount += 1;
 
     // First-time seeding: authenticated admin + Supabase is fresh (profile empty).
