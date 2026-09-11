@@ -1,11 +1,15 @@
-import { useMemo } from 'react';
-import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle, RotateCcw, AlertTriangle } from 'lucide-react';
 import { useCollection, useSingleton } from '../../hooks/useStore';
+import { syncFromCloud } from '../../lib/store';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
 export function Analytics() {
   const analytics = useCollection('analytics');
   const projects = useCollection('projects');
   const resume = useSingleton('resume');
+  const [resetting, setResetting] = useState<string | null>(null);
+  const [resetMsg, setResetMsg] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     const byType = (t: string) => analytics.filter((a) => a.type === t).length;
@@ -51,27 +55,74 @@ export function Analytics() {
   const maxDaily = Math.max(...daily, 1);
 
   const cards = [
-    { label: 'Page Views', value: stats.pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500' },
-    { label: 'Project Views', value: stats.projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500' },
-    { label: 'Resume Views', value: stats.resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500' },
-    { label: 'Resume Downloads', value: stats.resumeDownloads, icon: Download, color: 'from-emerald-500 to-green-500' },
-    { label: 'Contact Requests', value: stats.contacts, icon: Mail, color: 'from-amber-500 to-orange-500' },
-    { label: 'Assistant Interactions', value: stats.assistant, icon: Bot, color: 'from-rose-500 to-pink-500' },
+    { label: 'Page Views', value: stats.pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500', rpc: 'reset_page_views' },
+    { label: 'Project Views', value: stats.projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500', rpc: 'reset_project_views' },
+    { label: 'Resume Views', value: stats.resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500', rpc: 'reset_resume_views' },
+    { label: 'Resume Downloads', value: stats.resumeDownloads, icon: Download, color: 'from-emerald-500 to-green-500', rpc: 'reset_resume_downloads' },
+    { label: 'Contact Requests', value: stats.contacts, icon: Mail, color: 'from-amber-500 to-orange-500', rpc: 'reset_contacts' },
+    { label: 'Assistant Interactions', value: stats.assistant, icon: Bot, color: 'from-rose-500 to-pink-500', rpc: 'reset_assistant' },
   ];
+
+  const doReset = async (rpc: string, label: string) => {
+    if (!supabase || !isSupabaseConfigured) return;
+    if (!window.confirm(`Reset "${label}" to zero? This cannot be undone.`)) return;
+    setResetting(rpc);
+    setResetMsg(null);
+    try {
+      const { error } = await supabase.rpc(rpc);
+      if (error) throw error;
+      await syncFromCloud();
+      setResetMsg(`"${label}" has been reset to zero.`);
+    } catch (e) {
+      setResetMsg(`Reset failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+    setResetting(null);
+    setTimeout(() => setResetMsg(null), 3000);
+  };
+
+  const resetAll = async () => {
+    if (!window.confirm('Reset ALL analytics counters (page views, project views, resume views, resume downloads, contacts, assistant)? This cannot be undone.')) return;
+    setResetting('all');
+    setResetMsg(null);
+    try {
+      const { error } = await supabase!.rpc('reset_all_counters');
+      if (error) throw error;
+      await syncFromCloud();
+      setResetMsg('All analytics counters have been reset to zero.');
+    } catch (e) {
+      setResetMsg(`Reset failed: ${e instanceof Error ? e.message : 'unknown error'}`);
+    }
+    setResetting(null);
+    setTimeout(() => setResetMsg(null), 3000);
+  };
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="flex items-center gap-2 text-2xl font-bold text-white"><BarChart3 size={24} className="text-indigo-400" /> Analytics</h1>
-        <p className="text-sm text-slate-400">Visitor statistics and engagement metrics.</p>
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 text-2xl font-bold text-white"><BarChart3 size={24} className="text-indigo-400" /> Analytics</h1>
+          <p className="text-sm text-slate-400">Visitor statistics and engagement metrics.</p>
+        </div>
+        <button onClick={resetAll} disabled={!!resetting}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-4 py-2 text-sm font-medium text-rose-300 transition hover:bg-rose-500/20 disabled:opacity-60">
+          <RotateCcw size={15} className={resetting === 'all' ? 'animate-spin' : ''} /> Reset All Counters
+        </button>
       </div>
+
+      {resetMsg && (
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300"><AlertTriangle size={16} /> {resetMsg}</div>
+      )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => (
-          <div key={c.label} className="rounded-2xl border border-white/10 bg-white/5 p-5">
+          <div key={c.label} className="relative rounded-2xl border border-white/10 bg-white/5 p-5">
             <div className={`mb-3 grid h-10 w-10 place-items-center rounded-lg bg-gradient-to-br ${c.color}`}><c.icon size={18} className="text-white" /></div>
             <div className="text-2xl font-bold text-white">{c.value}</div>
             <div className="text-xs text-slate-400">{c.label}</div>
+            <button onClick={() => doReset(c.rpc, c.label)} disabled={!!resetting} title={`Reset ${c.label} to zero`}
+              className="absolute right-3 top-3 rounded-lg p-1.5 text-slate-500 transition hover:bg-white/10 hover:text-rose-400 disabled:opacity-50">
+              <RotateCcw size={14} className={resetting === c.rpc ? 'animate-spin' : ''} />
+            </button>
           </div>
         ))}
       </div>
