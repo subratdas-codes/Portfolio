@@ -15,7 +15,10 @@
 export const config = { maxDuration: 20 };
 
 const ADMIN_EMAIL = process.env.GMAIL_USER ?? 'subratdas219@gmail.com';
+// Legacy thread marker in the subject (old emails). New mail carries the id in
+// the Message-ID / References headers instead, so Gmail threading stays clean.
 const TOKEN_RE = /\[Portfolio\s*#([A-Za-z0-9_-]{4,80})\]/i;
+const HEADER_ID_RE = /portfolio-([A-Za-z0-9_-]{4,80})-?\d*@/i;
 const MAX_REPLY_LEN = 50_000;
 
 function json(res: any, status: number, data: Record<string, unknown>) {
@@ -118,16 +121,24 @@ export default async function handler(req: any, res: any) {
       const scanMailbox = async (path: string, sender: 'admin' | 'visitor') => {
         const lock = await client.getMailboxLock(path);
         try {
-          const uids = await client.search({ subject: 'Portfolio', since }, { uid: true });
+          const uids = await client.search(
+            { or: [{ subject: 'portfolio' }, { header: { references: 'portfolio-' } }], since },
+            { uid: true }
+          );
           for (const uid of uids) {
             try {
               const full = await client.fetchOne(uid, { source: true }, { uid: true });
               if (!full?.source) continue;
               const parsed = await simpleParser(Buffer.from(full.source));
               const subject = parsed.subject ?? '';
-              const m = TOKEN_RE.exec(subject);
-              if (!m) continue;
-              const convId = m[1];
+              // Resolve the conversation id from the subject token (legacy) or the
+              // Message-ID / References headers (current, keeps subject clean).
+              const subjectMatch = TOKEN_RE.exec(subject);
+              const headerBlob = [parsed.messageId, parsed.inReplyTo, ...(parsed.references ?? [])]
+                .filter(Boolean).join(' ');
+              const headerMatch = HEADER_ID_RE.exec(headerBlob);
+              const convId = subjectMatch?.[1] ?? headerMatch?.[1];
+              if (!convId) continue;
               if (!validIds.has(convId)) continue;
 
               const emailId = parsed.messageId ?? `uid-${uid}`;

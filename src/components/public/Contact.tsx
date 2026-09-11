@@ -63,22 +63,19 @@ export function Contact() {
       trackEvent('contact', 'new message from ' + row.name);
 
       // 3. Email delivery happens in the BACKGROUND — never blocks showing "Sent!".
-      const threadSubject = row.subject ? row.subject : 'New contact message';
+      const threadSubject = row.subject ? row.subject : 'Contact from your portfolio';
       fetch('/api/send-email', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: profile.email || 'subratdas219@gmail.com',
-          subject: `[Portfolio #${row.id}] New message from ${row.name}: ${threadSubject}`,
+          subject: threadSubject,
+          threadId: row.id,
           fromName: `${row.name} <${row.email}>`,
           html:
             '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">'
-            + '<h2 style="margin:0 0 4px">New message from your portfolio</h2>'
-            + `<p style="color:#64748b;margin:0 0 16px">from <b>${escapeHtml(row.name)}</b> &lt;${escapeHtml(row.email)}&gt;</p>`
-            + `<hr style="border:none;border-top:1px solid #e2e8f0;margin:0 0 16px"/>`
-            + (threadSubject ? `<p style="margin:0 0 12px"><b>Subject:</b> ${escapeHtml(threadSubject)}</p>` : '')
             + `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;white-space:pre-wrap;color:#0f172a">${escapeHtml(row.message)}</div>`
-            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Reply to this email and it will be delivered to ${escapeHtml(row.name)} at ${escapeHtml(row.email)} — the reply is also saved to the conversation in your admin dashboard.</p>`
+            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Replies to this email are delivered to <b>${escapeHtml(row.name)}</b> (${escapeHtml(row.email)}) and saved to the conversation in your admin dashboard.</p>`
             + '</div>',
           replyTo: `"${row.name}" <${row.email}>`,
         }),

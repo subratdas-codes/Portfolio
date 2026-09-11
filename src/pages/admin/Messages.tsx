@@ -117,7 +117,7 @@ export function Messages() {
     setReply('');
 
     // 2. Email it directly to the visitor — background, never blocks the UI.
-    const subject = `Re: [Portfolio #${active}] ${m.subject || 'Your message to Subrat Das'}`;
+    const subject = `Re: ${m.subject || 'Your message to Subrat Das'}`;
     const bodyHtml =
       '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">'
       + `<p style="margin:0 0 16px">Hi <b>${escapeHtml(m.name)}</b>,</p>`
