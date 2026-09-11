@@ -1,23 +1,45 @@
 import { useSingleton } from '../../hooks/useStore';
 import { SectionHeading } from '../ui/SectionHeading';
 import { Reveal } from '../ui/Reveal';
-import { Download, Eye, FileText, TrendingUp } from 'lucide-react';
+import { Download, Eye, FileText, TrendingUp, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import { trackEvent } from '../../lib/store';
 
 export function Resume() {
   const resume = useSingleton('resume');
+  const [downloading, setDownloading] = useState(false);
 
   const isPdf =
     resume.file_url.toLowerCase().endsWith('.pdf') ||
     resume.file_name.toLowerCase().endsWith('.pdf') ||
     resume.file_url.includes('application/pdf');
 
-  const onDownload = () => {
-    trackEvent('resume_download');
-    const a = document.createElement('a');
-    a.href = resume.file_url;
-    a.download = resume.file_name || 'resume';
-    a.click();
+  // Cross-origin files (Supabase storage) ignore the `download` attribute and
+  // open in place of the site. Fetch as a blob + object URL so the browser
+  // always downloads instead of navigating away.
+  const onDownload = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      trackEvent('resume_download');
+      const resp = await fetch(resume.file_url);
+      if (!resp.ok) throw new Error('Failed to fetch resume');
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = resume.file_name || 'resume';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch (e) {
+      console.warn('[resume] Download failed:', e);
+      // Fallback: open in a new tab so the site is never lost.
+      window.open(resume.file_url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setDownloading(false);
+    }
   };
 
   // "View" opens the file inline in a new tab — NO download.
@@ -53,7 +75,7 @@ export function Resume() {
               </div>
               <div className="flex gap-3">
                 <button onClick={onView} className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-3 font-semibold text-white transition hover:bg-white/10"><Eye size={18} /> View</button>
-                <button onClick={onDownload} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-400 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:scale-105"><Download size={18} /> Download</button>
+                <button onClick={onDownload} disabled={downloading} className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-400 px-5 py-3 font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:scale-105 disabled:opacity-70"><Download size={18} /> {downloading ? 'Preparing…' : 'Download'}</button>
               </div>
             </div>
           </div>
