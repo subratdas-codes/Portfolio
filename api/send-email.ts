@@ -86,6 +86,22 @@ async function verifyAdmin(accessToken: string): Promise<boolean> {
   }
 }
 
+// JWT-independent fallback: allow sending to a visitor address only when it
+// matches the stored email of the given thread (contact_message id).
+async function threadMatchesEmail(threadId: string | undefined, toEmail: string): Promise<boolean> {
+  const url = process.env.SUPABASE_URL;
+  const anon = process.env.SUPABASE_ANON_KEY;
+  if (!threadId || !url || !anon) return false;
+  try {
+    const sbModule = await supabaseModule();
+    const sb = sbModule.createClient(url, anon, { auth: { persistSession: false } });
+    const { data, error } = await sb.rpc('contact_thread_email', { p_thread_id: threadId });
+    return !error && typeof data === 'string' && data.toLowerCase() === toEmail.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 export default async function handler(req: any, res: any) {
   // --- GET returns 405 instantly (no imports, no awaits) -------------------
   if (req.method !== 'POST') {
@@ -133,13 +149,17 @@ export default async function handler(req: any, res: any) {
     return json(res, 400, { error: 'Invalid email address' });
   }
 
-  // Authz gate: anonymous → owner's own address only. Admin replies → verify JWT.
+  // Authz gate: anonymous → owner's own address only. Admin replies → verify JWT,
+  // with a thread-match fallback so replies still work if the browser session lapsed.
   const bearer = (req.headers['authorization'] ?? '') as string;
   const isAdmin = bearer.toLowerCase().startsWith('bearer ')
     ? await verifyAdmin(bearer.slice(7).trim())
     : false;
 
-  if (toEmail.toLowerCase() !== ADMIN_EMAIL.toLowerCase() && !isAdmin) {
+  const toIsOwner = toEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const isReply = await (!toIsOwner && !isAdmin ? threadMatchesEmail(body.threadId, toEmail) : Promise.resolve(false));
+
+  if (!toIsOwner && !isAdmin && !isReply) {
     return json(res, 403, { error: 'Not authorized to send to that address' });
   }
 
