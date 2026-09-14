@@ -1,13 +1,30 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ShieldCheck, KeyRound, Eye, EyeOff, CheckCircle2, Loader2, ArrowRight, AlertTriangle, LogIn } from 'lucide-react';
-import { supabase, isSupabaseConfigured } from '../../lib/supabase';
+import { supabase, isSupabaseConfigured, getAuthMemory, onAuthMemoryChange } from '../../lib/supabase';
 import { updatePassword } from '../../lib/store';
+
+function urlLooksLikeRecovery(): boolean {
+  const q = new URLSearchParams(document.location.search);
+  const h = document.location.hash;
+  return q.get('type') === 'recovery'
+    || h.includes('type=recovery')
+    || h.includes('access_token')
+    || q.has('code');
+}
 
 export function ResetPassword() {
   const navigate = useNavigate();
-  const [recovering, setRecovering] = useState(() => Boolean(supabase?.auth && document.location.hash.includes('type=recovery')));
+  // The recovery session may already be materialized (or the URL still contains
+  // the OAuth/recovery tokens). Detect it synchronously on first render.
+  const mem = getAuthMemory();
+  const [recovering, setRecovering] = useState<boolean>(() =>
+    Boolean((mem.event === 'PASSWORD_RECOVERY' || mem.hasSession) && (mem.at > 0 || urlLooksLikeRecovery())) || urlLooksLikeRecovery()
+  );
+  const [checking, setChecking] = useState<boolean>(() =>
+    Boolean(supabase && isSupabaseConfigured) && !((mem.event === 'PASSWORD_RECOVERY' || mem.hasSession) && (mem.at > 0 || urlLooksLikeRecovery()))
+  );
   const [error, setError] = useState(() =>
     (!supabase || !isSupabaseConfigured) ? 'Backend not configured. Cannot reset password.' : ''
   );
@@ -18,21 +35,57 @@ export function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const subRef = useRef<{ subscription: { unsubscribe: () => void } } | null>(null);
+  const unsubRef = useRef<(() => void) | null>(null);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    if (!supabase || !isSupabaseConfigured) return;
-    // Listen for the recovery session. Supabase redirects the email link to this
-    // page carrying a recovery token; once the client exchanges it, the event
-    // PASSWORD_RECOVERY fires with a valid (short-lived) session.
+    mountedRef.current = true;
+    if (!supabase || !isSupabaseConfigured) {
+      return;
+    }
+    // supabase-js may fire PASSWORD_RECOVERY during boot (before this page
+    // mounts) — pick that up from the module memory, then keep listening.
+    const onMem = () => {
+      const m = getAuthMemory();
+      if (m.event === 'PASSWORD_RECOVERY' || m.hasSession) {
+        setRecovering(true);
+        setChecking(false);
+      }
+    };
+    if (getAuthMemory().event === 'PASSWORD_RECOVERY' || getAuthMemory().hasSession) onMem();
+    unsubRef.current = onAuthMemoryChange(onMem);
+
     const { data } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'PASSWORD_RECOVERY') setRecovering(true);
+      if (event === 'PASSWORD_RECOVERY' || event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        setRecovering(true);
+        setChecking(false);
+      }
     });
     subRef.current = data;
-    // The URL may already carry the token by the time we subscribe — check now.
-    supabase.auth.getSession().then(({ data: sd }) => {
-      if (sd.session) setRecovering(true);
-    }).catch(() => {});
-    return () => { subRef.current?.subscription.unsubscribe(); };
+
+    // Exchange any PKCE /recovery tokens still in the URL and materialize the
+    // session so updateUser() has an authenticated user.
+    const sb = supabase;
+    const params = new URLSearchParams(document.location.search);
+    const code = params.get('code');
+    const qType = params.get('type');
+    const codePromise: Promise<unknown> =
+      (code && qType === 'recovery') ? sb.auth.exchangeCodeForSession(code) : Promise.resolve(undefined);
+
+    codePromise
+      .then(() => sb.auth.getSession())
+      .then(({ data: sd }) => {
+        if (!mountedRef.current) return;
+        if (sd.session) { setRecovering(true); setChecking(false); }
+        else { setChecking(false); }
+      })
+      .catch(() => { if (mountedRef.current) setChecking(false); });
+
+    return () => {
+      mountedRef.current = false;
+      subRef.current?.subscription.unsubscribe();
+      unsubRef.current?.();
+    };
   }, []);
 
   const submit = async (e: React.FormEvent) => {
@@ -47,6 +100,7 @@ export function ResetPassword() {
     if (error) { setError(error); return; }
     setDone(true);
     setInfo('Password updated successfully. Sign in with your new password.');
+    history.replaceState(null, '', '/admin/reset');
     setTimeout(() => navigate('/admin/login'), 1600);
   };
 
@@ -111,9 +165,14 @@ export function ResetPassword() {
               <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
                 <AlertTriangle size={16} className="mt-0.5 shrink-0" /> <span>{error}</span>
               </div>
-            ) : (
+            ) : checking ? (
               <div className="flex items-center justify-center gap-2 text-sm text-slate-400">
-                <Loader2 size={16} className="animate-spin" /> Checking link…
+                <Loader2 size={16} className="animate-spin" /> Verifying your reset link…
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+                <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                <span>This reset link is invalid or has expired. Please request a new one.</span>
               </div>
             )}
             <div className="flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-400">

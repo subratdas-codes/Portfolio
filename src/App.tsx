@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { initCloud } from './lib/store';
+import { onAuthMemoryChange, getAuthMemory } from './lib/supabase';
 
 const PublicSite = lazy(() => import('./pages/PublicSite').then((m) => ({ default: m.PublicSite })));
 const Login = lazy(() => import('./pages/admin/Login').then((m) => ({ default: m.Login })));
@@ -19,6 +20,39 @@ function FullScreenLoader() {
   );
 }
 
+// If the Supabase reset email link is opened while the redirect URL isn't yet
+// allowlisted, it may land on any route (e.g. home). Detect the recovery
+// session globally and bounce to the reset page so the password form always
+// shows up.
+function RecoveryRedirect() {
+  const navigate = useNavigate();
+  const doneRef = useRef(false);
+
+  useEffect(() => {
+    const check = () => {
+      if (doneRef.current) return;
+      const q = new URLSearchParams(document.location.search);
+      const h = document.location.hash;
+      const hasUrlTokens = q.get('type') === 'recovery'
+        || h.includes('type=recovery')
+        || h.includes('access_token')
+        || q.has('code');
+      const mem = getAuthMemory();
+      const isRecovery = (mem.event === 'PASSWORD_RECOVERY' || (mem.hasSession && h.includes('type=recovery'))) && mem.at > 0;
+      if (!(hasUrlTokens || isRecovery)) return;
+      if (document.location.pathname !== '/admin/reset') {
+        doneRef.current = true;
+        navigate('/admin/reset', { replace: true });
+      }
+    };
+    check();
+    const unsub = onAuthMemoryChange(check);
+    return () => unsub();
+  }, [navigate]);
+
+  return null;
+}
+
 export default function App() {
   const [cloudInitStarted, setCloudInitStarted] = useState(false);
 
@@ -34,6 +68,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <RecoveryRedirect />
       <Routes>
         <Route path="/" element={<PublicSite />} />
         <Route path="/admin/login" element={<Suspense fallback={<FullScreenLoader />}><Login /></Suspense>} />

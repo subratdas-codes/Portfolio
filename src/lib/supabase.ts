@@ -18,3 +18,32 @@ export const supabase = isSupabaseConfigured
   : null;
 
 export const SUPABASE_BUCKET = 'portfolio-assets';
+
+// --- Auth event memory ------------------------------------------------
+// supabase-js may complete the recovery helper exchange (PASSWORD_RECOVERY)
+// during app boot, BEFORE the reset page lazy-mounts. Capture the latest
+// event + session state at module level so the reset page can read it back
+// on mount instead of missing the event entirely.
+export type AuthMemory = { event: string; hasSession: boolean; at: number };
+let authMemory: AuthMemory = { event: 'INITIAL', hasSession: false, at: 0 };
+const authListeners = new Set<() => void>();
+
+export function getAuthMemory(): AuthMemory {
+  return authMemory;
+}
+
+export function onAuthMemoryChange(cb: () => void): () => void {
+  authListeners.add(cb);
+  return () => { authListeners.delete(cb); };
+}
+
+if (supabase) {
+  if (!supabase.auth.onAuthStateChange) {
+    console.warn('[supabase] onAuthStateChange unavailable');
+  } else {
+    supabase.auth.onAuthStateChange((event, session) => {
+      authMemory = { event, hasSession: !!session, at: Date.now() };
+      authListeners.forEach((cb) => cb());
+    });
+  }
+}
