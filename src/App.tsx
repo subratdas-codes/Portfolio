@@ -4,6 +4,8 @@ import { initCloud } from './lib/store';
 
 const PublicSite = lazy(() => import('./pages/PublicSite').then((m) => ({ default: m.PublicSite })));
 const Login = lazy(() => import('./pages/admin/Login').then((m) => ({ default: m.Login })));
+const ForgotPassword = lazy(() => import('./pages/admin/ForgotPassword').then((m) => ({ default: m.ForgotPassword })));
+const ResetCallback = lazy(() => import('./pages/admin/ResetCallback').then((m) => ({ default: m.ResetPassword })));
 const AdminApp = lazy(() => import('./pages/AdminApp').then((m) => ({ default: m.AdminApp })));
 
 function FullScreenLoader() {
@@ -35,6 +37,8 @@ export default function App() {
       <Routes>
         <Route path="/" element={<PublicSite />} />
         <Route path="/admin/login" element={<Suspense fallback={<FullScreenLoader />}><Login /></Suspense>} />
+        <Route path="/admin/forgot" element={<Suspense fallback={<FullScreenLoader />}><ForgotPassword /></Suspense>} />
+        <Route path="/admin/reset" element={<Suspense fallback={<FullScreenLoader />}><ResetCallback /></Suspense>} />
         <Route path="/admin/*" element={<Suspense fallback={<FullScreenLoader />}><AdminApp /></Suspense>} />
         <Route path="*" element={<PublicSite />} />
       </Routes>

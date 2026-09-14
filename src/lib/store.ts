@@ -665,10 +665,26 @@ export function signOut() {
   emit();
 }
 
-export function resetPassword(email: string): { error: string | null } {
+export async function requestPasswordReset(email: string): Promise<{ error: string | null }> {
   if (!supabase) return { error: 'Backend not configured.' };
-  supabase.auth.resetPasswordForEmail(email).catch((e) => console.warn(e));
-  return { error: null };
+  try {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/admin/reset`,
+    });
+    return { error: error?.message ?? null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to send reset email.' };
+  }
+}
+
+export async function updatePassword(newPassword: string): Promise<{ error: string | null }> {
+  if (!supabase) return { error: 'Backend not configured.' };
+  try {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    return { error: error?.message ?? null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Failed to update password.' };
+  }
 }
 
 export function getPersistError(): string | null {
