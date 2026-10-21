@@ -36,6 +36,7 @@ export function Messages() {
   const [reply, setReply] = useState('');
   const [replyStatus, setReplyStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [savedToCloud, setSavedToCloud] = useState<boolean | null>(null);
   const [replying, setReplying] = useState(false);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
 
@@ -120,17 +121,37 @@ export function Messages() {
       created_at: new Date().toISOString(),
     };
 
-    // 1. Persist locally always; to Supabase (Realtime) best-effort. A failed
-    //    insert (e.g. expired session) must NOT block the actual email send.
+    // 1. Persist to Supabase (Realtime + admin panel). If the browser session
+    //    has expired, fall back to the thread-authorized RPC so the reply is
+    //    still stored in the cloud; a total failure must NOT block the email.
+    let finalId = replyRow.id;
+    let cloudSaved = false;
     try {
       if (supabase && isSupabaseConfigured) {
         const { error } = await supabase.from('contact_replies').insert(replyRow);
-        if (error) console.warn('[reply] Supabase insert failed (email will still send):', error);
+        if (!error) {
+          cloudSaved = true;
+        } else {
+          console.warn('[reply] Direct insert failed, trying RPC fallback:', error.message);
+          const { data, error: rpcErr } = await supabase.rpc('add_contact_reply', {
+            p_thread_id: active,
+            p_body: replyBody,
+          });
+          if (!rpcErr && typeof data === 'string') {
+            finalId = data;
+            cloudSaved = true;
+          } else if (rpcErr) {
+            console.warn('[reply] RPC fallback failed:', rpcErr.message);
+          }
+        }
+      } else {
+        cloudSaved = true;
       }
     } catch (e) {
-      console.warn('[reply] Supabase insert failed (email will still send):', e);
+      console.warn('[reply] Supabase save failed (email will still send):', e);
     }
-    insertLocal('contact_replies', replyRow);
+    setSavedToCloud(cloudSaved);
+    insertLocal('contact_replies', { ...replyRow, id: finalId });
     setReplyStatus('sent');
     setReply('');
 
@@ -264,7 +285,7 @@ export function Messages() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-bold text-white">{activeMsg.name}</div>
-                <a href={`mailto:${activeMsg.email}`} className="text-sm text-indigo-300 hover:underline">{activeMsg.email}</a>
+                <button type="button" onClick={openInEmail} title="Compose an email reply" className="text-sm text-indigo-300 hover:underline">{activeMsg.email}</button>
               </div>
               <div className="flex gap-1">
                 <button onClick={() => update('contact_messages', activeMsg.id, { read: !activeMsg.read })} title="Toggle read" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white">{activeMsg.read ? <CheckCheck size={16} /> : <Check size={16} />}</button>
@@ -327,7 +348,12 @@ export function Messages() {
             {replyStatus === 'sent' && (
               <div className="flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                 <CheckCircle2 size={18} />
-                <span>Reply saved and {replyError ? 'ready to send' : `emailed to ${activeMsg.email}`}.</span>
+                <span>
+                  {savedToCloud === false
+                    ? 'Reply shown on this device, but cloud save failed — use "Open in Email" or check your connection.'
+                    : 'Reply saved in the conversation'}
+                  {replyError ? ', but the email was not sent automatically.' : ` and emailed to ${activeMsg.email}.`}
+                </span>
               </div>
             )}
 
