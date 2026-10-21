@@ -1,9 +1,9 @@
-// Vercel serverless function — logs resume downloads/views and project opens
-// together with visitor identity a browser cannot see on its own: public IP,
-// device (user-agent + client hints), location and ISP.
+// Vercel serverless function — logs resume downloads/views, project opens and
+// site visits together with visitor identity a browser cannot see on its own:
+// public IP, device (user-agent + client hints), location and ISP.
 //
 // POST JSON body:
-//   { type: 'resume_download' | 'resume_view' | 'project_view',
+//   { type: 'resume_download' | 'resume_view' | 'project_view' | 'page_view',
 //     meta?: string,          // project slug for project_view
 //     referrer?: string, path?: string,
 //     hints?: { model?, platform?, platformVersion? } }
@@ -35,7 +35,7 @@ async function readBody(req: Req): Promise<Record<string, unknown>> {
   return raw ? JSON.parse(raw) : {};
 }
 
-const ALLOWED = new Set(['resume_download', 'resume_view', 'project_view']);
+const ALLOWED = new Set(['resume_download', 'resume_view', 'project_view', 'page_view']);
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;

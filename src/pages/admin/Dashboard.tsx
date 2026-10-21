@@ -10,7 +10,7 @@ import { syncFromCloud } from '../../lib/store';
 import { Modal } from '../../components/ui/Modal';
 import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
 
-type ActivityType = 'resume_download' | 'resume_view' | 'project_view';
+type ActivityType = 'page_view' | 'resume_download' | 'resume_view' | 'project_view';
 
 export function Dashboard() {
   const messages = useCollection('contact_messages');
@@ -38,7 +38,7 @@ export function Dashboard() {
   const assistantUses = analytics.filter((a) => a.type === 'assistant').length;
 
   const stats: { label: string; value: number; icon: typeof Eye; color: string; to: string; activity?: ActivityType }[] = [
-    { label: 'Page Views', value: pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500', to: '/admin/analytics' },
+    { label: 'Page Views', value: pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500', to: '/admin/analytics', activity: 'page_view' },
     { label: 'Project Views', value: projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500', to: '/admin/analytics', activity: 'project_view' },
     { label: 'Resume Views', value: resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500', to: '/admin/analytics', activity: 'resume_view' },
     { label: 'Resume Downloads', value: resumeDls, icon: Download, color: 'from-emerald-500 to-green-500', to: '/admin/analytics', activity: 'resume_download' },
@@ -68,7 +68,8 @@ export function Dashboard() {
         })
     : [];
 
-  const activityTitle = activity === 'project_view' ? 'Who Viewed Projects'
+  const activityTitle = activity === 'page_view' ? 'Who Visited the Site'
+    : activity === 'project_view' ? 'Who Viewed Projects'
     : activity === 'resume_view' ? 'Who Viewed the Resume'
     : 'Who Downloaded the Resume';
   const ACTIVITY_PAGE = 15;
@@ -136,7 +137,7 @@ export function Dashboard() {
       <Modal open={!!activity} onClose={() => setActivity(null)} title={activityTitle} maxWidth="max-w-4xl">
         <div className="mb-4 flex items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
-            {activityRows.length} recorded {activity === 'project_view' ? 'project opens' : activity === 'resume_view' ? 'resume views' : 'resume downloads'}, newest first.
+            {activityRows.length} recorded {activity === 'project_view' ? 'project opens' : activity === 'resume_view' ? 'resume views' : activity === 'page_view' ? 'site visits' : 'resume downloads'}, newest first.
           </p>
           <span className="flex items-center gap-1.5 text-xs text-emerald-400">
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live · refreshes every 5s

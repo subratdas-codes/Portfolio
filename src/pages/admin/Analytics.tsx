@@ -12,6 +12,7 @@ export function Analytics() {
   const [resetting, setResetting] = useState<string | null>(null);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [showAllResume, setShowAllResume] = useState(false);
+  const [showAllVisitors, setShowAllVisitors] = useState(false);
 
   const stats = useMemo(() => {
     const byType = (t: string) => analytics.filter((a) => a.type === t).length;
@@ -70,6 +71,20 @@ export function Analytics() {
   }, [analytics]);
   const RESUME_PAGE = 15;
   const visibleResumeActivity = showAllResume ? resumeActivity : resumeActivity.slice(0, RESUME_PAGE);
+
+  // Who visited the site: enriched page_view rows (IP, location, ISP, device).
+  const visitorActivity = useMemo(() => {
+    return analytics
+      .filter((a) => a.type === 'page_view')
+      .slice()
+      .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
+      .map((e) => {
+        const info = parseVisitorMeta(e.meta);
+        return { ...e, info, device: describeClient(info), location: describeLocation(info) };
+      });
+  }, [analytics]);
+  const VISITOR_PAGE = 15;
+  const visibleVisitors = showAllVisitors ? visitorActivity : visitorActivity.slice(0, VISITOR_PAGE);
 
   // last 14 days
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -176,6 +191,54 @@ export function Analytics() {
             {referrers.length === 0 && <p className="text-sm text-slate-500">No data yet.</p>}
           </div>
         </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 font-semibold text-white"><Globe size={16} className="text-indigo-400" /> Who Visited the Site</h3>
+          <span className="text-xs text-slate-500">{stats.pageViews} visits total</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
+                <th className="py-2 pr-4 font-medium"><Clock size={11} className="inline" /> When</th>
+                <th className="py-2 pr-4 font-medium">IP Address</th>
+                <th className="py-2 pr-4 font-medium">Location</th>
+                <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
+                <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
+                <th className="hidden py-2 pr-4 font-medium xl:table-cell">Page</th>
+                <th className="py-2 font-medium">Referred From</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleVisitors.map((e, i) => (
+                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
+                  <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
+                  <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 lg:table-cell">{e.info.isp || '—'}</td>
+                  <td className="hidden max-w-[140px] truncate py-2 pr-4 text-slate-500 xl:table-cell">{e.path}</td>
+                  <td className="max-w-[180px] truncate py-2 text-slate-500">{e.referrer}</td>
+                </tr>
+              ))}
+              {visitorActivity.length === 0 && (
+                <tr><td colSpan={7} className="py-6 text-center text-slate-500">No site visits recorded yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {visitorActivity.length > VISITOR_PAGE && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setShowAllVisitors((v) => !v)}
+              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-indigo-400/40 hover:bg-white/10 hover:text-white"
+            >
+              {showAllVisitors ? 'Show less' : `See more (${visitorActivity.length - VISITOR_PAGE} more)`}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">

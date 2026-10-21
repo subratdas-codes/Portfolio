@@ -5,7 +5,7 @@ import { Assistant } from '../components/public/Assistant';
 import { SectionRenderer } from '../components/public/SectionRenderer';
 import { SyncIndicator } from '../components/ui/SyncIndicator';
 import { useCollection, useSingleton } from '../hooks/useStore';
-import { trackEvent, syncFromCloud, startCloudPolling } from '../lib/store';
+import { trackEnrichedEvent, syncFromCloud, startCloudPolling } from '../lib/store';
 
 export function PublicSite() {
   const sections = useCollection('sections');
@@ -21,7 +21,11 @@ export function PublicSite() {
   }, []);
 
   useEffect(() => {
-    trackEvent('page_view');
+    // Log one enriched visit per page load (IP, location, ISP, device).
+    trackEnrichedEvent('page_view');
+  }, []);
+
+  useEffect(() => {
     document.title = settings.seo_title || settings.site_title;
     const meta = document.querySelector('meta[name="description"]');
     if (meta) meta.setAttribute('content', settings.seo_description);

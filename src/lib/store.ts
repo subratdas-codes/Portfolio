@@ -788,7 +788,7 @@ export function trackEvent(
  *  device model (data a browser can't see by itself), while counters bump
  *  instantly here. Falls back to a plain client-side row (timestamped, no IP)
  *  whenever the API is unreachable — e.g. plain `npm run dev`. */
-export type EnrichedEventType = 'resume_download' | 'resume_view' | 'project_view';
+export type EnrichedEventType = 'resume_download' | 'resume_view' | 'project_view' | 'page_view';
 
 type NavigatorUAData = { getHighEntropyValues?: (hints: string[]) => Promise<Record<string, unknown>> };
 
@@ -819,7 +819,7 @@ export async function trackEnrichedEvent(type: EnrichedEventType, meta = ''): Pr
   }
   if (type === 'resume_download' && db.resume[0]) db.resume[0].downloads = (db.resume[0].downloads ?? 0) + 1;
   if (type === 'resume_view' && db.resume[0]) db.resume[0].views = (db.resume[0].views ?? 0) + 1;
-  if (supabase) {
+  if (supabase && type !== 'page_view') {
     const rpc = type === 'project_view' ? 'incr_project_views' : type === 'resume_download' ? 'incr_resume_downloads' : 'incr_resume_views';
     supabase.rpc(rpc, type === 'project_view' ? { p_slug: meta } : {}).then(({ error }) => {
       if (error) console.warn('[store] counter increment failed (ignored)', error.message);
