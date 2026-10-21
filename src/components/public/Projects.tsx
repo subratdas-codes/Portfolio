@@ -5,7 +5,7 @@ import { useCollection } from '../../hooks/useStore';
 import { SectionHeading } from '../ui/SectionHeading';
 import { Reveal } from '../ui/Reveal';
 import { Modal } from '../ui/Modal';
-import { trackEvent } from '../../lib/store';
+import { trackEnrichedEvent } from '../../lib/store';
 import type { Project } from '../../lib/types';
 
 export function Projects() {
@@ -16,7 +16,7 @@ export function Projects() {
 
   const open = (p: Project) => {
     setSelected(p);
-    trackEvent('project_view', p.id);
+    trackEnrichedEvent('project_view', p.slug);
   };
 
   return (

@@ -3,22 +3,7 @@ import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, Map
 import { useCollection, useSingleton } from '../../hooks/useStore';
 import { syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
-
-// Compact "browser · device" label from a raw user-agent string.
-function describeUA(ua: string): string {
-  if (!ua) return '—';
-  const browser = /Edg\//.test(ua) ? 'Edge'
-    : /OPR\/|Opera/.test(ua) ? 'Opera'
-    : /Firefox\//.test(ua) ? 'Firefox'
-    : /Chrome\//.test(ua) ? 'Chrome'
-    : /Safari\//.test(ua) ? 'Safari'
-    : /bot|crawler|spider|curl|wget/i.test(ua) ? 'Bot'
-    : 'Other';
-  const device = /iPad|Tablet/.test(ua) ? 'Tablet'
-    : /Mobile|Android|iPhone/.test(ua) ? 'Mobile'
-    : 'Desktop';
-  return `${browser} · ${device}`;
-}
+import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
 
 export function Analytics() {
   const analytics = useCollection('analytics');
@@ -26,6 +11,7 @@ export function Analytics() {
   const resume = useSingleton('resume');
   const [resetting, setResetting] = useState<string | null>(null);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
+  const [showAllResume, setShowAllResume] = useState(false);
 
   const stats = useMemo(() => {
     const byType = (t: string) => analytics.filter((a) => a.type === t).length;
@@ -46,15 +32,22 @@ export function Analytics() {
     return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
   }, [analytics]);
 
-  // per-project "who viewed": each recorded project_view event with its referrer
+  // per-project "who opened": each recorded project_view event with visitor info
   const projectViewDetails = useMemo(() => {
     const titleBySlug = new Map(projects.map((p) => [p.slug, p.title]));
+    const titleById = new Map(projects.map((p) => [p.id, p.title]));
     return analytics
       .filter((a) => a.type === 'project_view')
       .slice()
       .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
       .slice(0, 30)
-      .map((e) => ({ ...e, project: titleBySlug.get(e.meta) || e.meta || '(unknown project)' }));
+      .map((e) => {
+        const info = parseVisitorMeta(e.meta);
+        // New rows carry the slug in JSON; legacy rows have the plain slug/id.
+        const slug = info.project || e.meta;
+        const project = titleBySlug.get(slug) || titleById.get(slug) || slug || '(unknown project)';
+        return { ...e, info, project, device: describeClient(info), location: describeLocation(info) };
+      });
   }, [analytics, projects]);
 
   // latest assistant questions visitors asked the chat assistant
@@ -63,22 +56,20 @@ export function Analytics() {
     [analytics]
   );
 
-  // Who downloaded / viewed the resume: server-logged rows carry {ip, ua,
-  // country, city} JSON in meta; plain client fallback rows have empty meta.
+  // Who downloaded / viewed the resume: server-logged rows carry visitor JSON
+  // in meta; plain client fallback rows have empty meta.
   const resumeActivity = useMemo(() => {
     return analytics
       .filter((a) => a.type === 'resume_download' || a.type === 'resume_view')
       .slice()
       .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
-      .slice(0, 30)
       .map((e) => {
-        let info: { ip?: string; ua?: string; country?: string; city?: string } = {};
-        if (e.meta && e.meta.startsWith('{')) {
-          try { info = JSON.parse(e.meta); } catch { /* older/plain row */ }
-        }
-        return { ...e, info, device: describeUA(info.ua ?? '') };
+        const info = parseVisitorMeta(e.meta);
+        return { ...e, info, device: describeClient(info), location: describeLocation(info) };
       });
   }, [analytics]);
+  const RESUME_PAGE = 15;
+  const visibleResumeActivity = showAllResume ? resumeActivity : resumeActivity.slice(0, RESUME_PAGE);
 
   // last 14 days
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -211,22 +202,26 @@ export function Analytics() {
             <thead>
               <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
                 <th className="py-2 pr-4 font-medium">Project</th>
-                <th className="py-2 pr-4 font-medium">Referred From</th>
-                <th className="hidden py-2 pr-4 font-medium md:table-cell">Path</th>
-                <th className="py-2 font-medium"><Clock size={11} className="inline" /> When</th>
+                <th className="py-2 pr-4 font-medium"><Clock size={11} className="inline" /> When</th>
+                <th className="py-2 pr-4 font-medium">IP Address</th>
+                <th className="py-2 pr-4 font-medium">Location</th>
+                <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
+                <th className="hidden py-2 font-medium lg:table-cell">Referred From</th>
               </tr>
             </thead>
             <tbody>
               {projectViewDetails.map((e, i) => (
                 <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
                   <td className="py-2 pr-4 font-medium text-white">{e.project}</td>
-                  <td className="max-w-[180px] truncate py-2 pr-4 text-slate-400">{e.referrer}</td>
-                  <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 md:table-cell">{e.path}</td>
-                  <td className="whitespace-nowrap py-2 text-slate-500">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-500">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
+                  <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
+                  <td className="hidden max-w-[180px] truncate py-2 text-slate-500 lg:table-cell">{e.referrer}</td>
                 </tr>
               ))}
               {projectViewDetails.length === 0 && (
-                <tr><td colSpan={4} className="py-6 text-center text-slate-500">No project views recorded yet.</td></tr>
+                <tr><td colSpan={6} className="py-6 text-center text-slate-500">No project views recorded yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -235,7 +230,7 @@ export function Analytics() {
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
         <div className="mb-4 flex items-center justify-between gap-2">
-          <h3 className="flex items-center gap-2 font-semibold text-white"><Download size={16} className="text-emerald-400" /> Resume Activity — who downloaded / viewed (Latest 30)</h3>
+          <h3 className="flex items-center gap-2 font-semibold text-white"><Download size={16} className="text-emerald-400" /> Resume Activity — who downloaded / viewed</h3>
           <span className="text-xs text-slate-500">{stats.resumeDownloads} downloads · {stats.resumeViews} views total</span>
         </div>
         <div className="overflow-x-auto">
@@ -247,13 +242,13 @@ export function Analytics() {
                 <th className="py-2 pr-4 font-medium">IP Address</th>
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
-                <th className="hidden py-2 font-medium lg:table-cell">Referred From</th>
+                <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
+                <th className="hidden py-2 font-medium xl:table-cell">Referred From</th>
               </tr>
             </thead>
             <tbody>
-              {resumeActivity.map((e, i) => {
+              {visibleResumeActivity.map((e, i) => {
                 const isDownload = e.type === 'resume_download';
-                const location = [e.info.city, e.info.country].filter(Boolean).join(', ');
                 return (
                   <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-emerald-500/10' : ''}`}>
                     <td className="py-2 pr-4">
@@ -263,18 +258,29 @@ export function Analytics() {
                     </td>
                     <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
                     <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
-                    <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{location || '—'}</td>
+                    <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                     <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
-                    <td className="hidden max-w-[180px] truncate py-2 text-slate-500 lg:table-cell">{e.referrer}</td>
+                    <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 lg:table-cell">{e.info.isp || '—'}</td>
+                    <td className="hidden max-w-[180px] truncate py-2 text-slate-500 xl:table-cell">{e.referrer}</td>
                   </tr>
                 );
               })}
               {resumeActivity.length === 0 && (
-                <tr><td colSpan={6} className="py-6 text-center text-slate-500">No resume downloads or views recorded yet.</td></tr>
+                <tr><td colSpan={7} className="py-6 text-center text-slate-500">No resume downloads or views recorded yet.</td></tr>
               )}
             </tbody>
           </table>
         </div>
+        {resumeActivity.length > RESUME_PAGE && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setShowAllResume((v) => !v)}
+              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-indigo-400/40 hover:bg-white/10 hover:text-white"
+            >
+              {showAllResume ? 'Show less' : `See more (${resumeActivity.length - RESUME_PAGE} more)`}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">

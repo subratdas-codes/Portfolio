@@ -1,11 +1,16 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Eye, Download, MessageSquare, FolderGit2, Mail, TrendingUp, Bot,
+  Eye, Download, FolderGit2, Mail, TrendingUp, Bot,
   Users, Star, Clock, ArrowRight, FileText, Award, Cloud,
 } from 'lucide-react';
 import { useCollection, useSingleton } from '../../hooks/useStore';
-import { getDB, getSyncStatus } from '../../lib/store';
+import { syncFromCloud } from '../../lib/store';
+import { Modal } from '../../components/ui/Modal';
+import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
+
+type ActivityType = 'resume_download' | 'resume_view' | 'project_view';
 
 export function Dashboard() {
   const messages = useCollection('contact_messages');
@@ -13,7 +18,17 @@ export function Dashboard() {
   const resume = useSingleton('resume');
   const analytics = useCollection('analytics');
   const profile = useSingleton('profile');
-  const db = getDB();
+  const [activity, setActivity] = useState<ActivityType | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  // While a details modal is open, pull fresh analytics every 5s so new
+  // downloads/views appear live without closing the modal.
+  useEffect(() => {
+    if (!activity) return;
+    syncFromCloud();
+    const timer = setInterval(() => syncFromCloud(), 5000);
+    return () => clearInterval(timer);
+  }, [activity]);
 
   const unread = messages.filter((m) => !m.read).length;
   const projectViews = projects.reduce((s, p) => s + p.views, 0);
@@ -22,15 +37,42 @@ export function Dashboard() {
   const resumeViews = resume.views;
   const assistantUses = analytics.filter((a) => a.type === 'assistant').length;
 
-  const stats = [
+  const stats: { label: string; value: number; icon: typeof Eye; color: string; to: string; activity?: ActivityType }[] = [
     { label: 'Page Views', value: pageViews, icon: Eye, color: 'from-indigo-500 to-blue-500', to: '/admin/analytics' },
-    { label: 'Project Views', value: projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500', to: '/admin/analytics' },
-    { label: 'Resume Views', value: resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500', to: '/admin/analytics' },
-    { label: 'Resume Downloads', value: resumeDls, icon: Download, color: 'from-emerald-500 to-green-500', to: '/admin/analytics' },
+    { label: 'Project Views', value: projectViews, icon: FolderGit2, color: 'from-cyan-500 to-teal-500', to: '/admin/analytics', activity: 'project_view' },
+    { label: 'Resume Views', value: resumeViews, icon: Eye, color: 'from-violet-500 to-purple-500', to: '/admin/analytics', activity: 'resume_view' },
+    { label: 'Resume Downloads', value: resumeDls, icon: Download, color: 'from-emerald-500 to-green-500', to: '/admin/analytics', activity: 'resume_download' },
     { label: 'Unread Messages', value: unread, icon: Mail, color: 'from-amber-500 to-orange-500', to: '/admin/messages' },
     { label: 'Assistant Chats', value: assistantUses, icon: Bot, color: 'from-rose-500 to-pink-500', to: '/admin/analytics' },
     { label: 'Total Projects', value: projects.length, icon: FileText, color: 'from-cyan-500 to-teal-500', to: '/admin/projects' },
   ];
+
+  const titleBySlug = new Map(projects.map((p) => [p.slug, p.title]));
+  const titleById = new Map(projects.map((p) => [p.id, p.title]));
+  const activityRows = activity
+    ? analytics
+        .filter((a) => a.type === activity)
+        .slice()
+        .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
+        .slice(0, 100)
+        .map((e) => {
+          const info = parseVisitorMeta(e.meta);
+          const slug = info.project || e.meta;
+          return {
+            ...e,
+            info,
+            project: activity === 'project_view' ? titleBySlug.get(slug) || titleById.get(slug) || slug || 'Unknown' : '',
+            device: describeClient(info),
+            location: describeLocation(info),
+          };
+        })
+    : [];
+
+  const activityTitle = activity === 'project_view' ? 'Who Viewed Projects'
+    : activity === 'resume_view' ? 'Who Viewed the Resume'
+    : 'Who Downloaded the Resume';
+  const ACTIVITY_PAGE = 15;
+  const visibleActivityRows = expanded ? activityRows : activityRows.slice(0, ACTIVITY_PAGE);
 
   const quickLinks = [
     { to: 'profile', label: 'Edit Profile', icon: Users },
@@ -64,9 +106,9 @@ export function Dashboard() {
       </div>
 
       <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {stats.map((s, i) => (
-          <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
-            <Link to={s.to} className="group relative block h-full overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 transition hover:border-indigo-400/40 hover:bg-white/10">
+        {stats.map((s, i) => {
+          const card = (
+            <>
               <div className={`absolute -right-6 -top-6 h-20 w-20 rounded-full bg-gradient-to-br ${s.color} opacity-20 blur-2xl`} />
               <div className="flex items-center justify-between">
                 <div>
@@ -76,10 +118,72 @@ export function Dashboard() {
                 <div className={`grid h-12 w-12 place-items-center rounded-xl bg-gradient-to-br ${s.color}`}><s.icon size={22} className="text-white" /></div>
               </div>
               <ArrowRight size={14} className="absolute bottom-4 right-5 text-slate-600 transition group-hover:translate-x-1 group-hover:text-indigo-300" />
-            </Link>
-          </motion.div>
-        ))}
+            </>
+          );
+          const cls = 'group relative block h-full w-full overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-5 text-left transition hover:border-indigo-400/40 hover:bg-white/10';
+          return (
+            <motion.div key={s.label} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05 }}>
+              {s.activity ? (
+                <button type="button" onClick={() => { setExpanded(false); setActivity(s.activity!); }} className={cls}>{card}</button>
+              ) : (
+                <Link to={s.to} className={cls}>{card}</Link>
+              )}
+            </motion.div>
+          );
+        })}
       </div>
+
+      <Modal open={!!activity} onClose={() => setActivity(null)} title={activityTitle} maxWidth="max-w-4xl">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <p className="text-xs text-slate-500">
+            {activityRows.length} recorded {activity === 'project_view' ? 'project opens' : activity === 'resume_view' ? 'resume views' : 'resume downloads'}, newest first.
+          </p>
+          <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live · refreshes every 5s
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
+                {activity === 'project_view' && <th className="py-2 pr-4 font-medium">Project</th>}
+                <th className="py-2 pr-4 font-medium">When</th>
+                <th className="py-2 pr-4 font-medium">IP</th>
+                <th className="py-2 pr-4 font-medium">Location</th>
+                <th className="py-2 pr-4 font-medium">Device</th>
+                {activity !== 'project_view' && <th className="py-2 pr-4 font-medium">ISP</th>}
+                <th className="py-2 font-medium">Referrer</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleActivityRows.map((e) => (
+                <tr key={e.id} className="border-b border-white/5 text-slate-300">
+                  {activity === 'project_view' && <td className="py-2 pr-4 font-medium text-white">{e.project}</td>}
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.device}</td>
+                  {activity !== 'project_view' && <td className="max-w-[160px] truncate py-2 pr-4 text-slate-500">{e.info.isp || '—'}</td>}
+                  <td className="max-w-[180px] truncate py-2 text-slate-500">{e.referrer}</td>
+                </tr>
+              ))}
+              {activityRows.length === 0 && (
+                <tr><td colSpan={activity === 'project_view' ? 6 : 7} className="py-8 text-center text-slate-500">Nothing recorded yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        {activityRows.length > ACTIVITY_PAGE && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-indigo-400/40 hover:bg-white/10 hover:text-white"
+            >
+              {expanded ? 'Show less' : `See more (${activityRows.length - ACTIVITY_PAGE} more)`}
+            </button>
+          </div>
+        )}
+      </Modal>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="rounded-2xl border border-white/10 bg-white/5 p-6 lg:col-span-2">

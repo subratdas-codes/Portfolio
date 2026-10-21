@@ -783,42 +783,74 @@ export function trackEvent(
   emit();
 }
 
-/** Resume download/view tracker with server-side visitor capture.
- *  Posts to /api/resume-log so the analytics row carries IP + device + location
- *  (data a browser can't see by itself), while counters bump instantly here.
- *  Falls back to a plain client-side row (timestamped, no IP) whenever the API
- *  is unreachable — e.g. plain `npm run dev` without the Vercel functions. */
-export async function trackResumeEvent(type: 'resume_download' | 'resume_view'): Promise<void> {
+/** Resume/project tracker with server-side visitor capture.
+ *  Posts to /api/track so the analytics row carries IP + ISP + location +
+ *  device model (data a browser can't see by itself), while counters bump
+ *  instantly here. Falls back to a plain client-side row (timestamped, no IP)
+ *  whenever the API is unreachable — e.g. plain `npm run dev`. */
+export type EnrichedEventType = 'resume_download' | 'resume_view' | 'project_view';
+
+type NavigatorUAData = { getHighEntropyValues?: (hints: string[]) => Promise<Record<string, unknown>> };
+
+/** Device model/platform via User-Agent Client Hints (Chrome/Edge/Android).
+ *  Safari/Firefox don't expose these — the server falls back to UA parsing. */
+async function collectClientHints(): Promise<{ model?: string; platform?: string; platformVersion?: string }> {
+  try {
+    if (typeof navigator === 'undefined') return {};
+    const uaData = (navigator as Navigator & { userAgentData?: NavigatorUAData }).userAgentData;
+    if (!uaData?.getHighEntropyValues) return {};
+    const v = await uaData.getHighEntropyValues(['model', 'platform', 'platformVersion']);
+    const out: { model?: string; platform?: string; platformVersion?: string } = {};
+    for (const k of ['model', 'platform', 'platformVersion'] as const) {
+      const val = v?.[k];
+      if (typeof val === 'string' && val) out[k] = val;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+export async function trackEnrichedEvent(type: EnrichedEventType, meta = ''): Promise<void> {
+  // Optimistic counters — the visitor sees the number change immediately.
+  if (type === 'project_view') {
+    const p = db.projects.find((x) => x.id === meta || x.slug === meta);
+    if (p) p.views += 1;
+  }
   if (type === 'resume_download' && db.resume[0]) db.resume[0].downloads = (db.resume[0].downloads ?? 0) + 1;
   if (type === 'resume_view' && db.resume[0]) db.resume[0].views = (db.resume[0].views ?? 0) + 1;
   if (supabase) {
-    const rpc = type === 'resume_download' ? 'incr_resume_downloads' : 'incr_resume_views';
-    supabase.rpc(rpc, {}).then(({ error }) => {
-      if (error) console.warn('[store] resume counter increment failed (ignored)', error.message);
+    const rpc = type === 'project_view' ? 'incr_project_views' : type === 'resume_download' ? 'incr_resume_downloads' : 'incr_resume_views';
+    supabase.rpc(rpc, type === 'project_view' ? { p_slug: meta } : {}).then(({ error }) => {
+      if (error) console.warn('[store] counter increment failed (ignored)', error.message);
     });
   }
   emit();
 
+  const hints = await collectClientHints();
   try {
-    const resp = await fetch('/api/resume-log', {
+    const resp = await fetch('/api/track', {
       method: 'POST',
       headers: { 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({
         type,
+        meta,
         referrer: typeof document !== 'undefined' ? document.referrer || 'direct' : 'direct',
         path: typeof location !== 'undefined' ? location.pathname : '/',
+        hints,
       }),
     });
     const data: unknown = await resp.json().catch(() => null);
     if (resp.ok && data && typeof data === 'object' && (data as { ok?: boolean }).ok) return;
-    throw new Error(`resume-log ${resp.status}`);
+    throw new Error(`track ${resp.status}`);
   } catch {
     const event = {
       id: cryptoId(),
       type,
       referrer: typeof document !== 'undefined' ? document.referrer || 'direct' : 'direct',
       path: typeof location !== 'undefined' ? location.pathname : '/',
-      meta: '',
+      // Keep the plain project slug so legacy admin parsing still resolves it.
+      meta: type === 'project_view' ? meta : '',
       created_at: new Date().toISOString(),
     };
     db.analytics.unshift(event);

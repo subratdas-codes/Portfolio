@@ -3,7 +3,7 @@ import { SectionHeading } from '../ui/SectionHeading';
 import { Reveal } from '../ui/Reveal';
 import { Download, Eye, FileText, TrendingUp } from 'lucide-react';
 import { useState } from 'react';
-import { trackResumeEvent } from '../../lib/store';
+import { trackEnrichedEvent } from '../../lib/store';
 
 export function Resume() {
   const resume = useSingleton('resume');
@@ -21,7 +21,7 @@ export function Resume() {
     if (downloading) return;
     setDownloading(true);
     try {
-      trackResumeEvent('resume_download');
+      trackEnrichedEvent('resume_download');
       const resp = await fetch(resume.file_url);
       if (!resp.ok) throw new Error('Failed to fetch resume');
       const blob = await resp.blob();
@@ -46,7 +46,7 @@ export function Resume() {
   // For PDFs we use Google Docs Viewer so it renders in the browser.
   // For images we open the URL directly.
   const onView = () => {
-    trackResumeEvent('resume_view');
+    trackEnrichedEvent('resume_view');
     if (isPdf) {
       window.open(
         `https://docs.google.com/viewer?url=${encodeURIComponent(resume.file_url)}&embedded=true`,

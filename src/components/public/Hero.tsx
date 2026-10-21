@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Download, Mail, Github, Linkedin, Twitter, MapPin, Circle } from 'lucide-react';
 import { useSingleton, useCollection } from '../../hooks/useStore';
 import { ParticleField } from '../ui/ParticleField';
-import { trackResumeEvent, emailHref } from '../../lib/store';
+import { trackEnrichedEvent, emailHref } from '../../lib/store';
 
 const ICONS: Record<string, typeof Github> = { Github, Linkedin, Twitter, Mail };
 
@@ -51,7 +51,7 @@ export function Hero() {
   const stat2Label = projectsStat?.label ?? 'Projects Built';
 
   const onDownload = () => {
-    trackResumeEvent('resume_download');
+    trackEnrichedEvent('resume_download');
     document.querySelector('#resume')?.scrollIntoView({ behavior: 'smooth' });
   };
 
