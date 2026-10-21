@@ -74,8 +74,9 @@ export function Contact() {
           fromName: `${row.name} <${row.email}>`,
           html:
             '<div style="font-family:Segoe UI,Arial,sans-serif;max-width:560px;margin:0 auto;color:#0f172a">'
+            + `<p style="margin:0 0 12px;color:#475569;font-size:13px">New contact message from <b>${escapeHtml(row.name)}</b> &lt;${escapeHtml(row.email)}&gt;</p>`
             + `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:16px 18px;white-space:pre-wrap;color:#0f172a">${escapeHtml(row.message)}</div>`
-            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Replies to this email are delivered to <b>${escapeHtml(row.name)}</b> (${escapeHtml(row.email)}) and saved to the conversation in your admin dashboard.</p>`
+            + `<p style="color:#64748b;font-size:12px;margin:16px 0 0">Reply directly to this email — it goes to <b>${escapeHtml(row.name)}</b> (${escapeHtml(row.email)}) and is saved to the conversation in your admin dashboard.</p>`
             + '</div>',
           replyTo: `"${row.name}" <${row.email}>`,
         }),

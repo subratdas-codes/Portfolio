@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Mail, Star, Trash2, Reply, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink, RefreshCw, User, AlertTriangle } from 'lucide-react';
+import { Mail, Star, Trash2, Download, Check, CheckCheck, Search, Send, Loader2, CheckCircle2, ExternalLink, RefreshCw, User, AlertTriangle } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
 import { update, remove, insertLocal, cryptoId, syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
@@ -87,11 +87,29 @@ export function Messages() {
     setReplyStatus('idle');
   };
 
+  // Opens the admin's mail client / Gmail compose pre-filled to the visitor,
+  // with the reply draft (if any) and the visitor's original message quoted.
+  const openInEmail = () => {
+    if (!activeMsg) return;
+    const m = activeMsg as ContactMessage;
+    const subject = `Re: ${m.subject || 'Your message to Subrat Das'}`;
+    const quoted = m.message
+      .split(/\r?\n/)
+      .map((line) => `> ${line}`)
+      .join('\n');
+    const draft = reply.trim() || `Hi ${m.name},\n\n`;
+    const body = `${draft}\n\n---\nOn ${new Date(m.created_at).toLocaleString()}, ${m.name} <${m.email}> wrote:\n${quoted}`;
+    const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: m.email, su: subject, body }).toString()}`;
+    const mailto = `mailto:${m.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank', 'noopener,noreferrer');
+  };
+
   const sendReply = async () => {
     if (!active || !activeMsg || !reply.trim() || replying) return;
     const m = activeMsg as ContactMessage;
     setReplying(true);
     setReplyStatus('sending');
+    setReplyError(null);
 
     const replyBody = reply.trim().slice(0, 10000);
     const replyRow = {
@@ -309,7 +327,7 @@ export function Messages() {
             {replyStatus === 'sent' && (
               <div className="flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
                 <CheckCircle2 size={18} />
-                <span>Reply saved in conversation.</span>
+                <span>Reply saved and {replyError ? 'ready to send' : `emailed to ${activeMsg.email}`}.</span>
               </div>
             )}
 
@@ -324,9 +342,9 @@ export function Messages() {
 
             <div className="flex flex-wrap justify-end gap-2">
               <button onClick={closeModal} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/10">Close</button>
-              <a href={`mailto:${activeMsg.email}?subject=${encodeURIComponent('Re: ' + (activeMsg.subject || ''))}`} className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/10">
+              <button onClick={openInEmail} title="Open your email app with this reply pre-filled" className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/10">
                 <ExternalLink size={14} /> Open in Email
-              </a>
+              </button>
               <button onClick={sendReply} disabled={!reply.trim() || replyStatus === 'sending'}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                 {replyStatus === 'sending' ? <><Loader2 size={14} className="animate-spin" /> Sending…</>

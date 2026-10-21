@@ -13,6 +13,7 @@ export function Analytics() {
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [showAllResume, setShowAllResume] = useState(false);
   const [showAllVisitors, setShowAllVisitors] = useState(false);
+  const [showAllProjects, setShowAllProjects] = useState(false);
 
   const stats = useMemo(() => {
     const byType = (t: string) => analytics.filter((a) => a.type === t).length;
@@ -41,7 +42,6 @@ export function Analytics() {
       .filter((a) => a.type === 'project_view')
       .slice()
       .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
-      .slice(0, 30)
       .map((e) => {
         const info = parseVisitorMeta(e.meta);
         // New rows carry the slug in JSON; legacy rows have the plain slug/id.
@@ -50,6 +50,8 @@ export function Analytics() {
         return { ...e, info, project, device: describeClient(info), location: describeLocation(info) };
       });
   }, [analytics, projects]);
+  const PROJECT_PAGE = 15;
+  const visibleProjectViews = showAllProjects ? projectViewDetails : projectViewDetails.slice(0, PROJECT_PAGE);
 
   // latest assistant questions visitors asked the chat assistant
   const assistantQuestions = useMemo(
@@ -258,7 +260,7 @@ export function Analytics() {
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="flex items-center gap-2 font-semibold text-white"><MapPin size={16} className="text-cyan-400" /> Who Viewed Projects (Latest 30)</h3>
+          <h3 className="flex items-center gap-2 font-semibold text-white"><MapPin size={16} className="text-cyan-400" /> Who Viewed Projects</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -273,7 +275,7 @@ export function Analytics() {
               </tr>
             </thead>
             <tbody>
-              {projectViewDetails.map((e, i) => (
+              {visibleProjectViews.map((e, i) => (
                 <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
                   <td className="py-2 pr-4 font-medium text-white">{e.project}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-500">{new Date(e.created_at).toLocaleString()}</td>
@@ -289,6 +291,16 @@ export function Analytics() {
             </tbody>
           </table>
         </div>
+        {projectViewDetails.length > PROJECT_PAGE && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => setShowAllProjects((v) => !v)}
+              className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-indigo-400/40 hover:bg-white/10 hover:text-white"
+            >
+              {showAllProjects ? 'Show less' : `See more (${projectViewDetails.length - PROJECT_PAGE} more)`}
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
