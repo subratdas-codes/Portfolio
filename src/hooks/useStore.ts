@@ -3,8 +3,8 @@
 // Cloud sync is initialized on first use.
 // ============================================================================
 
-import { useSyncExternalStore, useEffect, useRef } from 'react';
-import { subscribe, getDB, select, getSingleton, syncFromCloud, startCloudPolling, getSyncStatus } from '../lib/store';
+import { useSyncExternalStore } from 'react';
+import { subscribe, select, getSingleton, syncFromCloud, startCloudPolling, getSyncStatus, getDBVersion, getStatusKey } from '../lib/store';
 import type { CollectionTable, SingletonTable, Schema } from '../lib/types';
 
 let cloudInitialized = false;
@@ -17,13 +17,14 @@ function ensureCloudInit() {
   startCloudPolling(15000);
 }
 
-// A monotonically increasing snapshot string. We append the sync status so
-// components re-render when cloud errors change.
+// Cheap O(1) snapshot: a version counter + sync status key. The previous
+// implementation JSON.stringify-ed the ENTIRE database on every render check,
+// which froze the main thread (bad INP) once analytics/logs grew.
 export function useDB() {
   ensureCloudInit();
   return useSyncExternalStore(
     subscribe,
-    () => JSON.stringify(getDB()) + '|' + JSON.stringify(getSyncStatus())
+    () => getDBVersion() + '|' + getStatusKey()
   );
 }
 

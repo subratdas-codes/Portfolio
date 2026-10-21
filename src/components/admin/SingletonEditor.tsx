@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, CheckCircle2, RotateCcw, AlertTriangle, Cloud } from 'lucide-react';
 import { useSingleton } from '../../hooks/useStore';
-import { upsertSingleton, getPersistError, forceCloudSync } from '../../lib/store';
-import { TextField, TextArea, ArrayField, ObjectListField, ImageField, FileField } from './fields';
+import { upsertSingleton, getPersistError, forceCloudSync, toast } from '../../lib/store';
+import { TextField, TextArea, ArrayField, ObjectListField, ImageField, FileField, EmojiPicker } from './fields';
 import type { FieldDef } from './fields';
 import type { SingletonTable, Schema } from '../../lib/types';
 
@@ -54,8 +54,9 @@ export function SingletonEditor<K extends SingletonTable>({ table, fields, title
     setSaveError('');
     // Push to cloud immediately so other devices get the update
     setCloudSyncing(true);
-    await forceCloudSync();
+    const ok = await forceCloudSync();
     setCloudSyncing(false);
+    toast(ok ? `Saved — ${title} updated live` : 'Saved locally — cloud sync retrying', ok ? 'success' : 'error');
     setTimeout(() => setSaved(false), 2500);
   };
 
@@ -94,9 +95,10 @@ export function SingletonEditor<K extends SingletonTable>({ table, fields, title
       <div className="space-y-5 rounded-2xl border border-white/10 bg-white/5 p-6">
         <div className="grid gap-5 sm:grid-cols-2">
           {fields.map((f) => (
-            <div key={f.name} className={f.full || f.type === 'textarea' || f.type === 'array' || f.type === 'image' || f.type === 'file' || f.type === 'objectlist' ? 'sm:col-span-2' : ''}>
+            <div key={f.name} className={f.full || f.type === 'textarea' || f.type === 'array' || f.type === 'image' || f.type === 'file' || f.type === 'objectlist' || f.type === 'emoji' ? 'sm:col-span-2' : ''}>
               <label className="mb-1.5 block text-sm font-medium text-slate-300">{f.label}</label>
               {f.type === 'text' && <TextField value={form[f.name] ?? ''} onChange={(v) => setVal(f.name, v)} placeholder={f.placeholder} readOnly={f.readOnly} />}
+              {f.type === 'emoji' && <EmojiPicker value={form[f.name] ?? ''} onChange={(v) => setVal(f.name, v)} />}
               {f.type === 'textarea' && <TextArea value={form[f.name] ?? ''} onChange={(v) => setVal(f.name, v)} rows={f.name === 'content' ? 8 : 4} />}
               {f.type === 'number' && <TextField value={String(form[f.name] ?? 0)} onChange={(v) => setVal(f.name, Number(v))} />}
               {f.type === 'color' && <input type="color" value={form[f.name] ?? '#6366f1'} onChange={(e) => setVal(f.name, e.target.value)} className="h-10 w-full rounded-lg bg-white/5" />}

@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { initCloud } from './lib/store';
 import { onAuthMemoryChange, getAuthMemory } from './lib/supabase';
+import { ToastHost } from './components/ui/ToastHost';
 
 const PublicSite = lazy(() => import('./pages/PublicSite').then((m) => ({ default: m.PublicSite })));
 const Login = lazy(() => import('./pages/admin/Login').then((m) => ({ default: m.Login })));
@@ -69,6 +70,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <RecoveryRedirect />
+      <ToastHost />
       <Routes>
         <Route path="/" element={<PublicSite />} />
         <Route path="/admin/login" element={<Suspense fallback={<FullScreenLoader />}><Login /></Suspense>} />

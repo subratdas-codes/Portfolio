@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { GripVertical, Eye, EyeOff, Save, Upload, RotateCcw, Plus, Trash2, ExternalLink, Layers } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
-import { saveDraft, loadDraft, publishDraft } from '../../lib/store';
+import { saveDraft, loadDraft, publishDraft, toast } from '../../lib/store';
 import { Modal } from '../../components/ui/Modal';
 import { TextField } from '../../components/admin/fields';
 import type { SectionConfig } from '../../lib/types';
@@ -15,6 +15,7 @@ export function PageBuilder() {
   const [newTitle, setNewTitle] = useState('');
   const [newKey, setNewKey] = useState('');
   const [preview, setPreview] = useState(false);
+  const [removing, setRemoving] = useState<SectionConfig | null>(null);
 
   useEffect(() => {
     const d = loadDraft();
@@ -34,13 +35,29 @@ export function PageBuilder() {
     setDraft(next); setDirty(true);
   };
 
+  // Visibility changes apply to the PUBLISHED site immediately (live), without
+  // waiting for a separate Publish click. Any staged draft is re-saved so it
+  // isn't lost (publishDraft clears the draft key).
   const toggle = (id: string) => {
-    setDraft(draft.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s))); setDirty(true);
+    const target = draft.find((s) => s.id === id);
+    if (!target) return;
+    const nowEnabled = !target.enabled;
+    const nextDraft = draft.map((s) => (s.id === id ? { ...s, enabled: nowEnabled } : s));
+    setDraft(nextDraft);
+    publishDraft(sections.map((s) => (s.id === id ? { ...s, enabled: nowEnabled } : s)));
+    if (dirty) saveDraft(nextDraft);
+    toast(`${target.title} ${nowEnabled ? 'shown' : 'hidden'} — updated live`);
   };
 
-  const removeSection = (id: string) => {
-    if (!confirm('Remove this section from the page?')) return;
-    setDraft(draft.filter((s) => s.id !== id)); setDirty(true);
+  const confirmRemove = () => {
+    const target = removing;
+    if (!target) return;
+    const nextDraft = draft.filter((s) => s.id !== target.id);
+    setDraft(nextDraft);
+    publishDraft(sections.filter((s) => s.id !== target.id));
+    if (dirty) saveDraft(nextDraft);
+    setRemoving(null);
+    toast(`${target.title} removed — updated live`);
   };
 
   const addSection = () => {
@@ -56,8 +73,8 @@ export function PageBuilder() {
     setDraft([...draft, s]); setDirty(true); setShowAdd(false); setNewTitle(''); setNewKey('');
   };
 
-  const save = () => { saveDraft(draft); setDirty(false); };
-  const publish = () => { publishDraft(draft); setDirty(false); };
+  const save = () => { saveDraft(draft); setDirty(false); toast('Draft saved — press Publish to push live', 'info'); };
+  const publish = () => { publishDraft(draft); setDirty(false); toast('Published — site updated live'); };
   const discard = () => {
     const fresh = [...sections].sort((a, b) => a.order - b.order);
     setDraft(fresh); setDirty(false);
@@ -102,7 +119,7 @@ export function PageBuilder() {
             <button onClick={() => toggle(s.id)} className={`rounded-lg p-2 transition ${s.enabled ? 'text-emerald-400 hover:bg-white/10' : 'text-slate-500 hover:bg-white/10'}`}>
               {s.enabled ? <Eye size={16} /> : <EyeOff size={16} />}
             </button>
-            {!s.built_in && <button onClick={() => removeSection(s.id)} className="rounded-lg p-2 text-rose-400 hover:bg-white/10"><Trash2 size={15} /></button>}
+            {!s.built_in && <button onClick={() => setRemoving(s)} className="rounded-lg p-2 text-rose-400 hover:bg-white/10"><Trash2 size={15} /></button>}
           </motion.div>
         ))}
       </div>
@@ -119,6 +136,18 @@ export function PageBuilder() {
             <button onClick={addSection} className="rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 px-5 py-2 text-sm font-semibold text-white">Add Section</button>
           </div>
         </div>
+      </Modal>
+
+      <Modal open={!!removing} onClose={() => setRemoving(null)} title="Remove section?" maxWidth="max-w-md">
+        {removing && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-300">Remove <span className="font-semibold text-white">&ldquo;{removing.title}&rdquo;</span> from the page? It goes away live immediately.</p>
+            <div className="flex justify-end gap-2 border-t border-white/10 pt-4">
+              <button onClick={() => setRemoving(null)} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/10">Cancel</button>
+              <button onClick={confirmRemove} className="rounded-lg bg-rose-500 px-5 py-2 text-sm font-semibold text-white hover:bg-rose-600">Remove</button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       <Modal open={preview} onClose={() => setPreview(false)} title="Live Preview" maxWidth="max-w-4xl">

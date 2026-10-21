@@ -1,9 +1,10 @@
-import { useState } from 'react';
-import { Plus, X, ChevronUp, ChevronDown } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Plus, X, ChevronUp, ChevronDown, Smile } from 'lucide-react';
 import { uploadImage, compressImage } from '../../lib/imageHost';
+import { EMOJI_CATEGORIES } from '../../lib/emojis';
 
 // ---------------------------------------------------------------- Field types
-export type FieldType = 'text' | 'textarea' | 'number' | 'array' | 'select' | 'checkbox' | 'image' | 'color' | 'objectlist' | 'file';
+export type FieldType = 'text' | 'textarea' | 'number' | 'array' | 'select' | 'checkbox' | 'image' | 'color' | 'objectlist' | 'file' | 'emoji';
 
 export interface FieldDef {
   name: string;
@@ -22,6 +23,91 @@ export function TextField({ value, onChange, placeholder, readOnly }: { value: s
 
 export function TextArea({ value, onChange, rows = 3 }: { value: string; onChange: (v: string) => void; rows?: number }) {
   return <textarea value={value} onChange={(e) => onChange(e.target.value)} rows={rows} className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400" />;
+}
+
+// ---------------------------------------------------------------- Emoji picker
+// A browsable/searchable emoji palette. The chosen emoji is stored as plain
+// text, so existing rows keep working without any migration.
+export function EmojiPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(true);
+  const [query, setQuery] = useState('');
+  const [cat, setCat] = useState(0);
+
+  const q = query.trim().toLowerCase();
+  const visible = useMemo(() => {
+    if (q) {
+      return EMOJI_CATEGORIES.map((c) => ({ name: c.name, emojis: c.emojis.filter(([e, k]) => e === q || k.includes(q) || e.includes(q)) })).filter((c) => c.emojis.length);
+    }
+    return [EMOJI_CATEGORIES[cat]];
+  }, [q, cat]);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <div className="grid h-10 w-12 shrink-0 place-items-center rounded-lg border border-white/10 bg-white/5 text-xl">{value || '—'}</div>
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Chosen emoji appears here"
+          className="min-w-0 flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium transition ${open ? 'bg-indigo-500 text-white' : 'bg-white/10 text-slate-200 hover:bg-white/20'}`}
+        >
+          <Smile size={16} /> {open ? 'Hide emojis' : 'Choose emoji'}
+        </button>
+      </div>
+
+      {open && (
+        <div className="rounded-xl border border-indigo-400/20 bg-slate-900/95 p-3">
+          <p className="mb-2 text-xs font-medium text-indigo-300">Choose an emoji — click one to select it</p>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search emoji... (e.g. fire, code, rocket)"
+            className="mb-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400"
+          />
+          {!q && (
+            <div className="mb-2 flex flex-wrap gap-1">
+              {EMOJI_CATEGORIES.map((c, i) => (
+                <button
+                  key={c.name}
+                  type="button"
+                  onClick={() => setCat(i)}
+                  className={`rounded-full px-2.5 py-1 text-xs transition ${i === cat ? 'bg-indigo-500 text-white' : 'bg-white/10 text-slate-300 hover:bg-white/20'}`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="max-h-56 overflow-y-auto pr-1">
+            {visible.map((c) => (
+              <div key={c.name} className="mb-2 last:mb-0">
+                {q && <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{c.name}</p>}
+                <div className="grid grid-cols-8 gap-1 sm:grid-cols-10">
+                  {c.emojis.map(([e, k], i) => (
+                    <button
+                      key={`${e}-${i}`}
+                      type="button"
+                      title={k || e}
+                      onClick={() => { onChange(e); setOpen(false); setQuery(''); }}
+                      className={`grid h-9 place-items-center rounded-lg text-xl transition hover:bg-white/15 ${value === e ? 'bg-indigo-500/40 ring-1 ring-indigo-400' : 'bg-white/5'}`}
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+            {visible.every((c) => c.emojis.length === 0) && <p className="py-4 text-center text-sm text-slate-500">No emoji found. Try another keyword.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ArrayField({ value, onChange, placeholder }: { value: string[]; onChange: (v: string[]) => void; placeholder?: string }) {

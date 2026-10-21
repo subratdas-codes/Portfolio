@@ -175,7 +175,23 @@ let lastCloudError: string | null = null;
 
 const pushQueue: Promise<unknown>[] = [];
 
-function persistLocal() {
+// Bumped on every store change so useSyncExternalStore snapshots stay O(1)
+// instead of JSON.stringify-ing the whole database on each render.
+let dbVersion = 0;
+export function getDBVersion(): number {
+  return dbVersion;
+}
+export function getStatusKey(): string {
+  return `${syncSuccessCount}|${lastCloudError ?? ''}|${lastPersistError ?? ''}|${isCloudSyncing ? 1 : 0}|${toasts.map((t) => t.id).join(',')}`;
+}
+
+// localStorage writes are coalesced: the first write after idle runs right away
+// (so getPersistError() still reports quota errors synchronously), rapid
+// follow-up writes are deferred to a trailing flush instead of stringify-ing the
+// whole DB inside every click handler.
+let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let lastPersistAt = 0;
+function writeLocal() {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
     lastPersistError = null;
@@ -184,10 +200,87 @@ function persistLocal() {
     console.warn('[store] Local persist failed:', lastPersistError);
   }
 }
+function persistLocal() {
+  const wait = 400 - (Date.now() - lastPersistAt);
+  if (wait <= 0) {
+    lastPersistAt = Date.now();
+    writeLocal();
+    return;
+  }
+  if (persistTimer) return;
+  persistTimer = setTimeout(() => {
+    persistTimer = null;
+    lastPersistAt = Date.now();
+    writeLocal();
+  }, wait);
+}
+function flushPersist() {
+  if (!persistTimer) return;
+  clearTimeout(persistTimer);
+  persistTimer = null;
+  lastPersistAt = Date.now();
+  writeLocal();
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', flushPersist);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushPersist();
+  });
+}
+
+function notify() {
+  dbVersion += 1;
+  listeners.forEach((l) => l());
+}
+
+// ---------------------------------------------------------------- Toasts
+// Tiny transient messages ("Skills — updated live") shared by admin screens.
+export interface ToastMsg {
+  id: number;
+  message: string;
+  tone: 'success' | 'error' | 'info';
+}
+let toasts: ToastMsg[] = [];
+let toastSeq = 0;
+export function toast(message: string, tone: ToastMsg['tone'] = 'success'): void {
+  const id = ++toastSeq;
+  toasts = [...toasts, { id, message, tone }];
+  notify();
+  setTimeout(() => {
+    toasts = toasts.filter((t) => t.id !== id);
+    notify();
+  }, 2800);
+}
+export function getToasts(): ToastMsg[] {
+  return toasts;
+}
+
+// ---------------------------------------------------------------- Cross-tab live sync
+// When Supabase isn't configured (or realtime is down), tabs in the same
+// browser still share localStorage. Listen for writes from other tabs so an
+// admin edit/delete/publish shows up LIVE on the public site without a reload.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === STORAGE_KEY && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue) as DB;
+        if (parsed && Array.isArray(parsed.profile) && Array.isArray(parsed.sections)) {
+          db = parsed;
+          notify(); // adopt other tab's state — don't re-persist (avoids echo loops)
+        }
+      } catch { /* ignore malformed writes */ }
+    } else if (e.key === ORDER_KEY && e.newValue) {
+      try {
+        orderMap = JSON.parse(e.newValue) as OrderMap;
+        notify();
+      } catch { /* ignore */ }
+    }
+  });
+}
 
 function emit() {
   persistLocal();
-  listeners.forEach((l) => l());
+  notify();
 }
 
 export function subscribe(l: Listener): () => void {
@@ -202,52 +295,120 @@ export function getDB(): DB {
 }
 
 // ---------------------------------------------------------------- Supabase push
+// Writes that failed (offline / RLS / transient errors) stay queued here so they
+// can be retried and so a cloud fetch never resurrects a locally-deleted row or
+// drops a locally-added one before the retry lands.
+type FailedOp = { kind: 'insert' | 'update' | 'delete' | 'upsert' | 'reorder'; table: TableName; payload: any };
+const failedOps: FailedOp[] = [];
+
+function enqueueFailed(op: FailedOp) {
+  const idx = failedOps.findIndex((o) => o.kind === op.kind && o.table === op.table && o.payload?.id === op.payload?.id);
+  if (idx >= 0) failedOps[idx] = op;
+  else failedOps.push(op);
+}
+
+function pendingDeleteIds(table: TableName): Set<string> {
+  return new Set(failedOps.filter((o) => o.kind === 'delete' && o.table === table).map((o) => String(o.payload?.id)));
+}
+function pendingInserts(table: TableName): any[] {
+  return failedOps.filter((o) => o.kind === 'insert' && o.table === table).map((o) => o.payload);
+}
+function pendingPatchIds(table: TableName): Set<string> {
+  return new Set(failedOps.filter((o) => o.kind === 'update' && o.table === table).map((o) => String(o.payload?.id)));
+}
+
+async function execPush(op: FailedOp): Promise<{ error: any }> {
+  const from = op.table;
+  if (op.kind === 'delete') {
+    const { error } = await supabase!.from(from).delete().eq('id', op.payload.id);
+    return { error };
+  }
+  if (op.kind === 'insert') {
+    const { error } = await supabase!.from(from).insert(op.payload);
+    return { error };
+  }
+  if (op.kind === 'upsert') {
+    const { error } = await supabase!.from(from).upsert(op.payload.rows || op.payload, op.payload.opts || { onConflict: 'id' });
+    return { error };
+  }
+  if (op.kind === 'reorder') {
+    for (const row of op.payload) {
+      const { error } = await supabase!.from(from).update({ order: row.order }).eq('id', row.id);
+      if (error) return { error };
+    }
+    return { error: null };
+  }
+  const { error } = await supabase!.from(from).update(op.payload.patch).eq('id', op.payload.id);
+  return { error };
+}
+
+/** Re-attempt every failed write. Resolves true when the queue is empty. */
+export async function retryFailedOps(): Promise<boolean> {
+  if (!supabase || !failedOps.length) return failedOps.length === 0;
+  const ops = [...failedOps];
+  for (const op of ops) {
+    try {
+      const { error } = await execPush(op);
+      // A duplicate-key insert means the row already landed — treat as done.
+      if (error && !(op.kind === 'insert' && (error as { code?: string }).code === '23505')) {
+        lastCloudError = (error as { message?: string })?.message ?? 'Cloud sync failed';
+        continue;
+      }
+      failedOps.splice(failedOps.indexOf(op), 1);
+      lastCloudError = null;
+    } catch (e) {
+      lastCloudError = (e as { message?: string })?.message ?? 'Cloud sync failed';
+    }
+  }
+  return failedOps.length === 0;
+}
+
 function pushTable(kind: 'insert' | 'update' | 'delete' | 'upsert' | 'reorder', table: TableName, payload?: any, opts?: any, silent = false) {
   if (!supabase) return;
-  const promise = (async () => {
-    const from = table === 'sections' ? 'sections' : table;
-    if (kind === 'delete') {
-      const { error } = await supabase.from(from).delete().eq('id', payload.id);
+  const op: FailedOp = { kind, table, payload: kind === 'upsert' ? { ...(payload || {}), opts } : payload };
+  const promise = execPush(op)
+    .then(({ error }) => {
       if (error) throw error;
-    } else if (kind === 'upsert') {
-      const { error } = await supabase.from(from).upsert(payload.rows || payload, opts || { onConflict: 'id' });
-      if (error) throw error;
-    } else if (kind === 'reorder') {
-      for (const row of payload) {
-        const { error } = await supabase.from(from).update({ order: row.order }).eq('id', row.id);
-        if (error) throw error;
+      lastCloudError = null;
+      const i = failedOps.indexOf(op);
+      if (i >= 0) failedOps.splice(i, 1);
+    })
+    .catch((e) => {
+      console.warn('[store] Supabase push failed', table, e);
+      if (!silent) {
+        lastCloudError = (e as { message?: string })?.message ?? 'Cloud sync failed';
+        enqueueFailed(op);
       }
-    } else if (kind === 'insert') {
-      const { error } = await supabase.from(from).insert(payload);
-      if (error) throw error;
-    } else {
-      const { error } = await supabase.from(from).update(payload.patch).eq('id', payload.id);
-      if (error) throw error;
-    }
-  })().catch((e) => {
-    console.warn('[store] Supabase push failed', table, e);
-    if (!silent) lastCloudError = e instanceof Error ? e.message : 'Cloud sync failed';
-  });
+      throw e;
+    });
+  promise.catch(() => {}); // rejection is surfaced via forceCloudSync/getSyncStatus
   pushQueue.push(promise);
-  promise.finally(() => {
-    const i = pushQueue.indexOf(promise);
-    if (i >= 0) pushQueue.splice(i, 1);
-  });
+  promise
+    .finally(() => {
+      const i = pushQueue.indexOf(promise);
+      if (i >= 0) pushQueue.splice(i, 1);
+    })
+    .catch(() => {}); // derived promise rejects with the original — swallow here
   return promise;
 }
 
-/** Await all in-flight writes then do an authoritative full push (silently skips if anon). */
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** Await the in-flight writes (current + previously failed retries).
+ *  Time-boxed so a hung network request can never freeze the UI. */
 export async function forceCloudSync(): Promise<boolean> {
   try {
-    if (pushQueue.length) await Promise.allSettled(pushQueue);
-    if (supabase && isAuthenticated() && isSupabaseConfigured) {
-      await pushAllTables();
+    if (pushQueue.length) {
+      await Promise.race([Promise.allSettled([...pushQueue]), delay(8000)]);
+    }
+    if (supabase && isAuthenticated() && isSupabaseConfigured && failedOps.length) {
+      await Promise.race([retryFailedOps(), delay(8000)]);
     }
   } catch (e) {
     console.warn('[store] Force sync failed', e);
   }
-  listeners.forEach((l) => l());
-  return !lastCloudError;
+  notify();
+  return failedOps.length === 0 && !lastCloudError;
 }
 
 /** Push every row we have for every seedable table (used for seeding / reset). */
@@ -273,11 +434,39 @@ async function fetchTableRows(t: TableName): Promise<{ table: TableName; rows: a
   return { table: t, rows: data as any[] ?? [], denied: false };
 }
 
+/** Merge fetched cloud rows into the local store without losing optimistic
+ *  local changes: rows with a pending (failed) delete stay deleted, rows with a
+ *  pending insert stay added, and rows with a pending update keep local values.
+ *  This is what stops a slow/failed cloud write from resurrecting deleted items
+ *  or dropping new ones on the next poll/realtime event. */
+function applyCloudRows(table: TableName, rows: any[]): void {
+  if (!Array.isArray(rows) || !rows.length) return;
+  let next = rows;
+  const dels = pendingDeleteIds(table);
+  if (dels.size) next = next.filter((r) => r && !dels.has(String((r as { id?: string }).id)));
+  const ins = pendingInserts(table);
+  if (ins.length) {
+    const have = new Set(next.map((r) => String((r as { id?: string }).id)));
+    next = [...ins.filter((p) => p && !have.has(String(p.id))), ...next];
+  }
+  const patches = pendingPatchIds(table);
+  if (patches.size) {
+    const localById = new Map(((db[table] as unknown[]) ?? []).map((r) => [String((r as { id?: string }).id), r]));
+    next = next.map((r) => (patches.has(String((r as { id?: string }).id)) ? localById.get(String((r as { id?: string }).id)) ?? r : r));
+  }
+  if (!next.length) return;
+  (db as any)[table] = formatFetched(table, next);
+  persistLocal();
+}
+
 export async function syncFromCloud(): Promise<void> {
   if (!supabase) return;
   if (isCloudSyncing) return;
   isCloudSyncing = true;
   try {
+    // Flush any writes that failed earlier (offline, transient RLS/network).
+    if (failedOps.length) retryFailedOps().then((ok) => { if (ok) notify(); });
+
     const authed = isAuthenticated();
     const tables = authed ? ALL_TABLES : PUBLIC_TABLES;
     const results = await Promise.allSettled(tables.map(fetchTableRows));
@@ -285,7 +474,7 @@ export async function syncFromCloud(): Promise<void> {
     let anyData = false;
     for (const r of results) {
       if (r.status === 'rejected') {
-        const msg = r.reason instanceof Error ? r.reason.message : 'Cloud read failed';
+        const msg = (r.reason as { message?: string })?.message || 'Cloud read failed';
         lastCloudError = msg;
         console.warn('[store] read failed', msg);
         continue;
@@ -293,12 +482,12 @@ export async function syncFromCloud(): Promise<void> {
       const { table, rows, denied } = r.value;
       if (denied) continue;
       if (rows.length > 0) {
-        (db as any)[table] = formatFetched(table as TableName, rows as Schema[TableName][]);
+        applyCloudRows(table as TableName, rows as any[]);
         anyData = true;
       }
     }
     if (anyData) persistLocal();
-    lastCloudError = null;
+    if (!failedOps.length) lastCloudError = null;
     syncSuccessCount += 1;
 
     // First-time seeding: authenticated admin + Supabase is fresh (profile empty).
@@ -311,13 +500,14 @@ export async function syncFromCloud(): Promise<void> {
       localStorage.setItem(SEEDED_KEY, '1');
     }
 
-    listeners.forEach((l) => l());
+    notify();
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Cloud sync failed';
     lastCloudError = msg;
     console.warn('[store] Cloud sync error:', e);
   } finally {
     isCloudSyncing = false;
+    notify();
   }
 }
 
@@ -334,6 +524,38 @@ export function getSyncStatus() {
 
 // ---------------------------------------------------------------- Realtime
 let realtimeStarted = false;
+
+// Supabase emits one postgres_changes event PER changed row, so a bulk save can
+// produce dozens of events at once. Coalesce them into a single refetch per
+// table (throttled + trailing) instead of hammering the network and the UI.
+const refetchTimers = new Map<TableName, ReturnType<typeof setTimeout>>();
+const refetchDirty = new Set<TableName>();
+function scheduleTableRefetch(table: TableName) {
+  if (refetchTimers.has(table)) {
+    refetchDirty.add(table);
+    return;
+  }
+  refetchTimers.set(
+    table,
+    setTimeout(() => {
+      refetchTimers.delete(table);
+      fetchTableRows(table)
+        .then(({ rows, denied }) => {
+          if (denied) return;
+          if (Array.isArray(rows)) {
+            applyCloudRows(table, rows);
+            persistLocal();
+            notify();
+          }
+        })
+        .catch((e) => console.warn('[store] realtime refetch failed', table, e))
+        .finally(() => {
+          if (refetchDirty.delete(table)) scheduleTableRefetch(table);
+        });
+    }, 300)
+  );
+}
+
 function startRealtime() {
   if (!supabase || realtimeStarted) return;
   realtimeStarted = true;
@@ -342,18 +564,9 @@ function startRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public' }, (payload: any) => {
       const table = payload?.table as TableName | undefined;
       if (!table || !ALL_TABLES.includes(table as TableName)) return;
-      // Re-fetch the single table so the UI reflects the latest server truth,
-      // then notify every listener (open viewer tab updates instantly).
-      fetchTableRows(table as TableName)
-        .then(({ rows, denied }) => {
-          if (denied) return;
-          if (Array.isArray(rows)) {
-            (db as any)[table] = rows as any;
-            persistLocal();
-            listeners.forEach((l) => l());
-          }
-        })
-        .catch((e) => console.warn('[store] realtime refetch failed', table, e));
+      // Coalesced re-fetch so the UI reflects the latest server truth and every
+      // open tab updates live — without a refetch storm on bulk changes.
+      scheduleTableRefetch(table as TableName);
     })
     .subscribe((status) => {
       if (status !== 'SUBSCRIBED') console.warn('[store] realtime status:', status);
@@ -454,10 +667,12 @@ export function remove<K extends CollectionTable>(table: K, id: string): void {
   const idx = arr.findIndex((r) => (r as { id: string }).id === id);
   if (idx >= 0) {
     arr.splice(idx, 1);
-    pushTable('delete', table, { id });
     audit('delete', table, id, 'Deleted ' + table);
     emit();
   }
+  // Always push (idempotent): if a previous delete failed offline, calling
+  // remove() again re-sends it even though the row is already gone locally.
+  pushTable('delete', table, { id });
 }
 
 export function getCollectionOrder(table: CollectionTable): string[] {
@@ -688,5 +903,7 @@ export async function updatePassword(newPassword: string): Promise<{ error: stri
 }
 
 export function getPersistError(): string | null {
+  // Force any deferred write so the caller sees an up-to-date quota error.
+  if (persistTimer) flushPersist();
   return lastPersistError;
 }

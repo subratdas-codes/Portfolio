@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { Plus, Pencil, Trash2, Search, X, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 import { useCollection } from '../../hooks/useStore';
-import { insert, update, remove, getPersistError, forceCloudSync, setCollectionOrder, getCollectionOrder } from '../../lib/store';
+import { insert, update, remove, getPersistError, forceCloudSync, setCollectionOrder, getCollectionOrder, toast } from '../../lib/store';
 import { Modal } from '../ui/Modal';
-import { TextField, TextArea, ArrayField, ObjectListField, ImageField, FileField } from './fields';
+import { TextField, TextArea, ArrayField, ObjectListField, ImageField, FileField, EmojiPicker } from './fields';
 import type { FieldDef } from './fields';
 import type { CollectionTable, Schema } from '../../lib/types';
 
@@ -25,6 +25,12 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
   const [isNew, setIsNew] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [flashId, setFlashId] = useState<string | null>(null);
+  // Non-blocking delete confirmation. The old native confirm() kept the click
+  // handler "running" for the whole time the dialog was open, which Chrome
+  // reports as the event handler blocking UI updates (INP issue).
+  const [confirming, setConfirming] = useState<Row | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [syncError, setSyncError] = useState('');
 
   const filtered = (query && searchKeys
     ? rows.filter((r) => searchKeys.some((k) => String((r as unknown as Record<string, unknown>)[k] ?? '').toLowerCase().includes(query.toLowerCase())))
@@ -48,11 +54,10 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
 
   const save = async () => {
     if (!editing) return;
+    const { id, ...rest } = editing;
     if (isNew) {
-      const { id, ...rest } = editing;
       insert(table, rest as any);
     } else {
-      const { id, ...rest } = editing;
       update(table, id, rest as any);
     }
     const err = getPersistError();
@@ -62,16 +67,40 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
     }
     setSaveError('');
     setEditing(null);
-    // Push to cloud immediately so other devices get the update
-    await forceCloudSync();
-  };
-
-  const del = async (id: string) => {
-    if (confirm('Delete this item? This cannot be undone.')) {
-      remove(table, id);
-      await forceCloudSync();
+    // Push just this change to the cloud (retries any earlier failed writes)
+    const ok = await forceCloudSync();
+    if (ok) {
+      setSyncError('');
+      toast(`Saved — ${title} updated live`);
+    } else {
+      setSyncError('Saved on this device, but the cloud write hasn\u2019t succeeded yet. It keeps retrying in the background \u2014 a reload may revert it until the sync goes through.');
+      toast('Saved locally — cloud sync retrying', 'error');
     }
   };
+
+  const retrySync = async () => {
+    const ok = await forceCloudSync();
+    if (ok) setSyncError('');
+  };
+
+  const del = async () => {
+    const row = confirming;
+    if (!row) return;
+    setDeleting(true);
+    remove(table, row.id);
+    const ok = await forceCloudSync();
+    setDeleting(false);
+    setConfirming(null);
+    if (ok) {
+      setSyncError('');
+      toast(`Deleted — ${title} updated live`);
+    } else {
+      setSyncError('Removed on this device, but the cloud delete hasn\u2019t succeeded yet. It keeps retrying in the background \u2014 the item may reappear after a reload until the delete goes through.');
+      toast('Deleted locally — cloud sync retrying', 'error');
+    }
+  };
+
+  const rowLabel = (row: Row) => (fields[0] ? displayValue(row, fields[0]) : '') || 'this item';
 
   const moveRow = async (id: string, direction: 'up' | 'down') => {
     const ordered = getCollectionOrder(table);
@@ -116,6 +145,15 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
         </div>
       </div>
 
+      {syncError && (
+        <div className="mb-4 flex flex-wrap items-start gap-2 rounded-lg border border-amber-400/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <span className="min-w-[200px] flex-1">{syncError}</span>
+          <button onClick={retrySync} className="rounded-lg bg-amber-400/20 px-3 py-1 font-medium text-amber-100 hover:bg-amber-400/30">Retry sync</button>
+          <button onClick={() => setSyncError('')} className="px-1 text-amber-300/70 hover:text-amber-100" title="Dismiss"><X size={15} /></button>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-2xl border border-white/10 bg-white/5">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -136,7 +174,7 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
                       <button onClick={() => moveRow((row as Row).id, 'up')} title="Move up" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><ChevronUp size={15} /></button>
                       <button onClick={() => moveRow((row as Row).id, 'down')} title="Move down" className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><ChevronDown size={15} /></button>
                       <button onClick={() => startEdit(row as Row)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-indigo-300"><Pencil size={15} /></button>
-                      <button onClick={() => del((row as Row).id)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-rose-400"><Trash2 size={15} /></button>
+                      <button onClick={() => setConfirming(row as Row)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-rose-400"><Trash2 size={15} /></button>
                     </div>
                   </td>
                 </tr>
@@ -158,9 +196,10 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               {fields.map((f) => (
-                <div key={f.name} className={f.full || f.type === 'textarea' || f.type === 'array' || f.type === 'image' || f.type === 'file' || f.type === 'objectlist' ? 'sm:col-span-2' : ''}>
+                <div key={f.name} className={f.full || f.type === 'textarea' || f.type === 'array' || f.type === 'image' || f.type === 'file' || f.type === 'objectlist' || f.type === 'emoji' ? 'sm:col-span-2' : ''}>
                   <label className="mb-1 block text-sm font-medium text-slate-300">{f.label}</label>
                   {f.type === 'text' && <TextField value={editing[f.name] ?? ''} onChange={(v) => setVal(f.name, v)} placeholder={f.placeholder} readOnly={f.readOnly} />}
+                  {f.type === 'emoji' && <EmojiPicker value={editing[f.name] ?? ''} onChange={(v) => setVal(f.name, v)} />}
                   {f.type === 'textarea' && <TextArea value={editing[f.name] ?? ''} onChange={(v) => setVal(f.name, v)} />}
                   {f.type === 'number' && <TextField value={String(editing[f.name] ?? 0)} onChange={(v) => setVal(f.name, Number(v))} />}
                   {f.type === 'color' && <input type="color" value={editing[f.name] ?? '#6366f1'} onChange={(e) => setVal(f.name, e.target.value)} className="h-10 w-full rounded-lg bg-white/5" />}
@@ -181,6 +220,22 @@ export function CollectionEditor<K extends CollectionTable>({ table, fields, tit
             <div className="flex justify-end gap-2 border-t border-white/10 pt-4">
               <button onClick={() => setEditing(null)} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/10">Cancel</button>
               <button onClick={save} className="inline-flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-cyan-400 px-5 py-2 text-sm font-semibold text-white hover:scale-105">Save & Sync</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!confirming} onClose={() => { if (!deleting) setConfirming(null); }} title="Delete item?" maxWidth="max-w-md">
+        {confirming && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-300">
+              Delete <span className="font-semibold text-white">&ldquo;{rowLabel(confirming)}&rdquo;</span>? This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2 border-t border-white/10 pt-4">
+              <button onClick={() => setConfirming(null)} disabled={deleting} className="rounded-lg border border-white/10 px-4 py-2 text-sm text-slate-300 hover:bg-white/10 disabled:opacity-50">Cancel</button>
+              <button onClick={del} disabled={deleting} className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500 px-5 py-2 text-sm font-semibold text-white transition hover:bg-rose-600 disabled:opacity-70">
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
             </div>
           </div>
         )}

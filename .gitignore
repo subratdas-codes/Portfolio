@@ -24,3 +24,8 @@ dist-ssr
 *.sw?
 .vite-source-tags.js
 .vercel
+
+# Environment (Supabase / Vercel secrets)
+.env
+.env.*
+!.env.example
