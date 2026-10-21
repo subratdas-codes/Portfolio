@@ -37,7 +37,6 @@ export function Messages() {
   const [replyStatus, setReplyStatus] = useState<'idle' | 'sending' | 'sent'>('idle');
   const [replyError, setReplyError] = useState<string | null>(null);
   const [savedToCloud, setSavedToCloud] = useState<boolean | null>(null);
-  const [replying, setReplying] = useState(false);
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle');
 
   const syncedOnce = useRef(false);
@@ -59,7 +58,6 @@ export function Messages() {
     if (syncedOnce.current) return;
     syncedOnce.current = true;
     syncEmailReplies();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filtered = messages.filter((m) => {
@@ -74,14 +72,13 @@ export function Messages() {
     .filter((r) => r.message_id === active)
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
-  const open = (id: string) => {
+  function open(id: string) {
     setActive(id);
     setReplyStatus('idle');
-    setReplying(false);
     const m = messages.find((x) => x.id === id);
     if (m && !m.read) update('contact_messages', id, { read: true });
     setReply('');
-  };
+  }
 
   const closeModal = () => {
     setActive(null);
@@ -106,9 +103,8 @@ export function Messages() {
   };
 
   const sendReply = async () => {
-    if (!active || !activeMsg || !reply.trim() || replying) return;
+    if (!active || !activeMsg || !reply.trim() || replyStatus === 'sending') return;
     const m = activeMsg as ContactMessage;
-    setReplying(true);
     setReplyStatus('sending');
     setReplyError(null);
 
@@ -191,12 +187,11 @@ export function Messages() {
       const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: m.email, su: subject, body: replyBody + '\n\n---\nBest regards,\nSubrat Das' }).toString()}`;
       window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank');
     }
-    setReplying(false);
 
     // Keep modal open so the user can keep chatting on the same thread.
   };
 
-  const syncEmailReplies = async () => {
+  async function syncEmailReplies() {
     const token = await getAdminToken();
     if (!token) {
       setSyncState('error');
@@ -217,7 +212,7 @@ export function Messages() {
       setSyncState('error');
     }
     setTimeout(() => setSyncState((s) => (s === 'done' ? 'idle' : s)), 3000);
-  };
+  }
 
   const exportCSV = () => {
     const headers = ['Name', 'Email', 'Subject', 'Message', 'Read', 'Starred', 'Date'];
@@ -226,10 +221,6 @@ export function Messages() {
     const blob = new Blob([csv], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = 'messages.csv'; a.click();
-  };
-
-  const focusReplyBox = () => {
-    setReplying(true);
   };
 
   return (
@@ -339,7 +330,7 @@ export function Messages() {
 
             <div>
               <label className="mb-1 block text-sm text-slate-300">Reply</label>
-              <textarea value={reply} onChange={(e) => setReply(e.target.value)} onFocus={focusReplyBox} rows={4} placeholder="Type your reply to send to this person's email..." className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400" />
+              <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={4} placeholder="Type your reply to send to this person's email..." className="w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-indigo-400" />
               <p className="mt-1 text-xs text-slate-500">
                 <Mail size={11} className="inline" /> Reply is emailed directly to <span className="text-indigo-300">{activeMsg.email}</span> and saved in this conversation.
               </p>
