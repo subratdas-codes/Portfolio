@@ -4,6 +4,22 @@ import { useCollection, useSingleton } from '../../hooks/useStore';
 import { syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 
+// Compact "browser · device" label from a raw user-agent string.
+function describeUA(ua: string): string {
+  if (!ua) return '—';
+  const browser = /Edg\//.test(ua) ? 'Edge'
+    : /OPR\/|Opera/.test(ua) ? 'Opera'
+    : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome'
+    : /Safari\//.test(ua) ? 'Safari'
+    : /bot|crawler|spider|curl|wget/i.test(ua) ? 'Bot'
+    : 'Other';
+  const device = /iPad|Tablet/.test(ua) ? 'Tablet'
+    : /Mobile|Android|iPhone/.test(ua) ? 'Mobile'
+    : 'Desktop';
+  return `${browser} · ${device}`;
+}
+
 export function Analytics() {
   const analytics = useCollection('analytics');
   const projects = useCollection('projects');
@@ -46,6 +62,23 @@ export function Analytics() {
     () => analytics.filter((a) => a.type === 'assistant').slice().sort((a, b) => (b.created_at < a.created_at ? -1 : 1)).slice(0, 20),
     [analytics]
   );
+
+  // Who downloaded / viewed the resume: server-logged rows carry {ip, ua,
+  // country, city} JSON in meta; plain client fallback rows have empty meta.
+  const resumeActivity = useMemo(() => {
+    return analytics
+      .filter((a) => a.type === 'resume_download' || a.type === 'resume_view')
+      .slice()
+      .sort((a, b) => (b.created_at < a.created_at ? -1 : 1))
+      .slice(0, 30)
+      .map((e) => {
+        let info: { ip?: string; ua?: string; country?: string; city?: string } = {};
+        if (e.meta && e.meta.startsWith('{')) {
+          try { info = JSON.parse(e.meta); } catch { /* older/plain row */ }
+        }
+        return { ...e, info, device: describeUA(info.ua ?? '') };
+      });
+  }, [analytics]);
 
   // last 14 days
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -194,6 +227,50 @@ export function Analytics() {
               ))}
               {projectViewDetails.length === 0 && (
                 <tr><td colSpan={4} className="py-6 text-center text-slate-500">No project views recorded yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+        <div className="mb-4 flex items-center justify-between gap-2">
+          <h3 className="flex items-center gap-2 font-semibold text-white"><Download size={16} className="text-emerald-400" /> Resume Activity — who downloaded / viewed (Latest 30)</h3>
+          <span className="text-xs text-slate-500">{stats.resumeDownloads} downloads · {stats.resumeViews} views total</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
+                <th className="py-2 pr-4 font-medium">Action</th>
+                <th className="py-2 pr-4 font-medium"><Clock size={11} className="inline" /> When</th>
+                <th className="py-2 pr-4 font-medium">IP Address</th>
+                <th className="py-2 pr-4 font-medium">Location</th>
+                <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
+                <th className="hidden py-2 font-medium lg:table-cell">Referred From</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumeActivity.map((e, i) => {
+                const isDownload = e.type === 'resume_download';
+                const location = [e.info.city, e.info.country].filter(Boolean).join(', ');
+                return (
+                  <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-emerald-500/10' : ''}`}>
+                    <td className="py-2 pr-4">
+                      <span className={`rounded px-2 py-0.5 text-xs font-medium ${isDownload ? 'bg-emerald-500/15 text-emerald-300' : 'bg-violet-500/15 text-violet-300'}`}>
+                        {isDownload ? 'Download' : 'View'}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
+                    <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
+                    <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{location || '—'}</td>
+                    <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
+                    <td className="hidden max-w-[180px] truncate py-2 text-slate-500 lg:table-cell">{e.referrer}</td>
+                  </tr>
+                );
+              })}
+              {resumeActivity.length === 0 && (
+                <tr><td colSpan={6} className="py-6 text-center text-slate-500">No resume downloads or views recorded yet.</td></tr>
               )}
             </tbody>
           </table>

@@ -783,6 +783,55 @@ export function trackEvent(
   emit();
 }
 
+/** Resume download/view tracker with server-side visitor capture.
+ *  Posts to /api/resume-log so the analytics row carries IP + device + location
+ *  (data a browser can't see by itself), while counters bump instantly here.
+ *  Falls back to a plain client-side row (timestamped, no IP) whenever the API
+ *  is unreachable — e.g. plain `npm run dev` without the Vercel functions. */
+export async function trackResumeEvent(type: 'resume_download' | 'resume_view'): Promise<void> {
+  if (type === 'resume_download' && db.resume[0]) db.resume[0].downloads = (db.resume[0].downloads ?? 0) + 1;
+  if (type === 'resume_view' && db.resume[0]) db.resume[0].views = (db.resume[0].views ?? 0) + 1;
+  if (supabase) {
+    const rpc = type === 'resume_download' ? 'incr_resume_downloads' : 'incr_resume_views';
+    supabase.rpc(rpc, {}).then(({ error }) => {
+      if (error) console.warn('[store] resume counter increment failed (ignored)', error.message);
+    });
+  }
+  emit();
+
+  try {
+    const resp = await fetch('/api/resume-log', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({
+        type,
+        referrer: typeof document !== 'undefined' ? document.referrer || 'direct' : 'direct',
+        path: typeof location !== 'undefined' ? location.pathname : '/',
+      }),
+    });
+    const data: unknown = await resp.json().catch(() => null);
+    if (resp.ok && data && typeof data === 'object' && (data as { ok?: boolean }).ok) return;
+    throw new Error(`resume-log ${resp.status}`);
+  } catch {
+    const event = {
+      id: cryptoId(),
+      type,
+      referrer: typeof document !== 'undefined' ? document.referrer || 'direct' : 'direct',
+      path: typeof location !== 'undefined' ? location.pathname : '/',
+      meta: '',
+      created_at: new Date().toISOString(),
+    };
+    db.analytics.unshift(event);
+    if (db.analytics.length > 1000) db.analytics.length = 1000;
+    if (supabase) {
+      supabase.from('analytics').insert(event).then(({ error }) => {
+        if (error) console.warn('[store] analytics insert failed (ignored)', error.message);
+      });
+    }
+    emit();
+  }
+}
+
 // ---------------------------------------------------------------- Draft/Publish
 export function saveDraft(sections: Schema['sections'][]): void {
   try {
