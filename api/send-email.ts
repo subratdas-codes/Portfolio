@@ -15,6 +15,8 @@
 export const config = { maxDuration: 10 };
 
 const ADMIN_EMAIL = process.env.GMAIL_USER ?? 'subratdas219@gmail.com';
+const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 
 function json(res: any, status: number, data: Record<string, unknown>) {
   res.writeHead(status, { 'content-type': 'application/json' });
@@ -73,8 +75,8 @@ async function getTransporter() {
 }
 
 async function verifyAdmin(accessToken: string): Promise<boolean> {
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
+  const url = SUPABASE_URL;
+  const anon = SUPABASE_ANON_KEY;
   if (!url || !anon) return false;
   try {
     const sbModule = await supabaseModule();
@@ -89,8 +91,8 @@ async function verifyAdmin(accessToken: string): Promise<boolean> {
 // JWT-independent fallback: allow sending to a visitor address only when it
 // matches the stored email of the given thread (contact_message id).
 async function threadMatchesEmail(threadId: string | undefined, toEmail: string): Promise<boolean> {
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
+  const url = SUPABASE_URL;
+  const anon = SUPABASE_ANON_KEY;
   if (!threadId || !url || !anon) return false;
   try {
     const sbModule = await supabaseModule();
@@ -145,7 +147,7 @@ export default async function handler(req: any, res: any) {
   };
   const toEmail = normalizeEmail(to);
   const replyToEmail = body.replyTo ? normalizeEmail(body.replyTo) : '';
-  if (!emailRe.test(toEmail) || (replyToEmail && !emailRe.test(replyToEmail)) || (replyToEmail && replyToEmail.length > 254)) {
+  if (!emailRe.test(toEmail) || toEmail.length > 254 || (replyToEmail && !emailRe.test(replyToEmail)) || (replyToEmail && replyToEmail.length > 254)) {
     return json(res, 400, { error: 'Invalid email address' });
   }
 
@@ -181,7 +183,7 @@ export default async function handler(req: any, res: any) {
   try {
     const transporter = await getTransporter();
     await transporter.sendMail(mailMsg);
-    return json(res, 200, { ok: true });
+    return json(res, 200, { ok: true, messageId: mailMsg.messageId ?? null });
   } catch (e) {
     _transporter = null; // discard dead transporter so next call reconnects
     return json(res, 500, { error: e instanceof Error ? e.message : 'send failed' });

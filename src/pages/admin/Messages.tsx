@@ -180,6 +180,11 @@ export function Messages() {
       });
       const data = await resp.json().catch(() => null);
       if (!resp.ok) throw new Error(data?.error || `Email failed (${resp.status})`);
+      // Remember the Gmail Message-ID so /api/sync-email recognises this mail
+      // as already stored instead of inserting a duplicate admin reply.
+      if (data?.messageId) {
+        update('contact_replies', finalId, { email_message_id: data.messageId });
+      }
     } catch (err) {
       console.warn('[reply] Email send failed (reply saved in dashboard):', err);
       setReplyError(err instanceof Error ? err.message : 'Email send failed');

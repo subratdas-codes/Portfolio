@@ -15,10 +15,15 @@
 export const config = { maxDuration: 20 };
 
 const ADMIN_EMAIL = process.env.GMAIL_USER ?? 'subratdas219@gmail.com';
+const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY;
 // Legacy thread marker in the subject (old emails). New mail carries the id in
 // the Message-ID / References headers instead, so Gmail threading stays clean.
 const TOKEN_RE = /\[Portfolio\s*#([A-Za-z0-9_-]{4,80})\]/i;
-const HEADER_ID_RE = /portfolio-([A-Za-z0-9_-]{4,80})-?\d*@/i;
+// Message-ID format: <portfolio-<threadId>-<timestamp>@...>. The id itself is
+// `id_...` (no hyphens), so the lazy group stops before the timestamp and the
+// optional numeric suffix is never swallowed into the conversation id.
+const HEADER_ID_RE = /portfolio-([A-Za-z0-9_]{4,80}?)(?:-\d+)?@/i;
 const MAX_REPLY_LEN = 50_000;
 
 function json(res: any, status: number, data: Record<string, unknown>) {
@@ -65,17 +70,21 @@ export default async function handler(req: any, res: any) {
     return json(res, 500, { error: 'GMAIL_USER / GMAIL_APP_PASSWORD not configured' });
   }
 
-  const url = process.env.SUPABASE_URL;
-  const anon = process.env.SUPABASE_ANON_KEY;
+  const url = SUPABASE_URL;
+  const anon = SUPABASE_ANON_KEY;
   if (!url || !anon) {
     return json(res, 500, { error: 'SUPABASE_URL / SUPABASE_ANON_KEY not configured' });
   }
 
   const sbModule = await supabaseModule();
-  const sb = sbModule.createClient(url, anon, { auth: { persistSession: false } });
-  await sb.auth.setSession({ access_token: jwt, refresh_token: '' });
+  // Send the admin JWT on every request so RLS treats these queries as the
+  // authenticated admin (setSession with an empty refresh token is unreliable).
+  const sb = sbModule.createClient(url, anon, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+  });
 
-  const { data: userData, error: userError } = await sb.auth.getUser();
+  const { data: userData, error: userError } = await sb.auth.getUser(jwt);
   if (userError || userData.user?.email?.toLowerCase() !== ADMIN_EMAIL.toLowerCase()) {
     return json(res, 403, { error: 'Not authorized' });
   }
@@ -175,7 +184,11 @@ export default async function handler(req: any, res: any) {
       await scanMailbox('INBOX', 'visitor');
       await scanMailbox(sentPath, 'admin');
     } finally {
-      await client.logout();
+      try {
+        await client.logout();
+      } catch {
+        /* connection already closed */
+      }
     }
   } catch (e) {
     return json(res, 500, { error: e instanceof Error ? e.message : 'sync failed', synced });
