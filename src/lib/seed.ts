@@ -71,7 +71,7 @@ export function seedData(): DB {
       { id: id('s1'), name: 'Java', category: 'Backend', level: 90, icon: '☕', color: '#f89820' },
       { id: id('s2'), name: 'Node.js', category: 'Backend', level: 88, icon: '🟢', color: '#339933' },
       { id: id('s3'), name: 'Python', category: 'Backend', level: 85, icon: '🐍', color: '#3776ab' },
-      { id: id('s4'), name: 'Spring Boot', category: 'Backend', level: 80, icon: '🌱', color: '#6db33f' },
+      { id: id('s4'), name: 'Spring Boot', category: 'Framework', level: 80, icon: '🌱', color: '#6db33f' },
       { id: id('s5'), name: 'Express', category: 'Backend', level: 86, icon: '⚡', color: '#000000' },
       { id: id('s6'), name: 'React', category: 'Frontend', level: 92, icon: '⚛️', color: '#61dafb' },
       { id: id('s7'), name: 'TypeScript', category: 'Frontend', level: 90, icon: '📘', color: '#3178c6' },
@@ -89,6 +89,8 @@ export function seedData(): DB {
       { id: id('s19'), name: 'Figma', category: 'Tools', level: 75, icon: '🎯', color: '#f24e1e' },
       { id: id('s20'), name: 'C++', category: 'Languages', level: 88, icon: '💠', color: '#00599c' },
       { id: id('s21'), name: 'SQL', category: 'Languages', level: 86, icon: '🗃️', color: '#e38c00' },
+      { id: id('s22'), name: 'FastAPI', category: 'Framework', level: 82, icon: '⚡', color: '#009688' },
+      { id: id('s23'), name: 'LLM Basics', category: 'Other', level: 72, icon: '🤖', color: '#8b5cf6' },
     ],
 
     education: [

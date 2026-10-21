@@ -7,7 +7,7 @@ export const FIELD_CONFIGS: Record<string, { fields: FieldDef[]; title: string; 
     searchKeys: ['name', 'category'],
     fields: [
       { name: 'name', label: 'Skill Name', type: 'text' },
-      { name: 'category', label: 'Category', type: 'select', options: ['Backend', 'Frontend', 'Database', 'Cloud', 'DevOps', 'Tools', 'Languages'] },
+      { name: 'category', label: 'Category', type: 'select', options: ['Backend', 'Frontend', 'Framework', 'Languages', 'Database', 'Cloud', 'DevOps', 'Tools', 'Other'] },
       { name: 'level', label: 'Proficiency (0-100)', type: 'number' },
       { name: 'icon', label: 'Icon (emoji)', type: 'emoji' },
       { name: 'color', label: 'Color', type: 'color' },

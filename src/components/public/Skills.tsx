@@ -1,30 +1,41 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useCollection } from '../../hooks/useStore';
 import { SectionHeading } from '../ui/SectionHeading';
 import { Reveal } from '../ui/Reveal';
 import type { SkillCategory } from '../../lib/types';
 
-const CATEGORIES: SkillCategory[] = ['Backend', 'Frontend', 'Database', 'Cloud', 'DevOps', 'Tools', 'Languages'];
+const CATEGORIES: SkillCategory[] = ['Backend', 'Frontend', 'Framework', 'Languages', 'Database', 'Cloud', 'DevOps', 'Tools', 'Other'];
 
 export function Skills() {
   const skills = useCollection('skills');
-  const [active, setActive] = useState<SkillCategory>('Backend');
-  const list = skills.filter((s) => s.category === active);
+  const [active, setActive] = useState<string>('');
+
+  // Only categories that actually have skills are shown, in a stable order.
+  const categories = useMemo(() => {
+    const order = new Map<string, number>(CATEGORIES.map((c, i) => [c, i]));
+    return Array.from(new Set(skills.map((s) => s.category)))
+      .sort((a, b) => (order.get(a) ?? 99) - (order.get(b) ?? 99));
+  }, [skills]);
+
+  const current = categories.includes(active as SkillCategory) ? active : categories[0];
+  const list = skills.filter((s) => s.category === current);
 
   return (
     <section id="skills" className="relative py-24">
       <div className="mx-auto max-w-7xl px-6">
         <SectionHeading eyebrow="Skills" title="Technologies I work with" subtitle="A curated toolkit honed across projects, internships, and coursework." />
 
-        <Reveal className="mb-8 flex flex-wrap justify-center gap-2">
-          {CATEGORIES.map((c) => (
-            <button key={c} onClick={() => setActive(c)}
-              className={`rounded-full px-4 py-2 text-sm font-medium transition ${
-                active === c ? 'bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-lg shadow-indigo-500/30' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
-              }`}>{c}</button>
-          ))}
-        </Reveal>
+        {categories.length > 0 && (
+          <Reveal className="mb-8 flex flex-wrap justify-center gap-2">
+            {categories.map((c) => (
+              <button key={c} onClick={() => setActive(c)}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  current === c ? 'bg-gradient-to-r from-indigo-500 to-cyan-400 text-white shadow-lg shadow-indigo-500/30' : 'border border-white/10 bg-white/5 text-slate-300 hover:bg-white/10'
+                }`}>{c}</button>
+            ))}
+          </Reveal>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <AnimatePresence mode="popLayout">

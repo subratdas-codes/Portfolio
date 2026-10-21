@@ -43,7 +43,7 @@ export interface About {
 }
 
 export type SkillCategory =
-  | 'Backend' | 'Frontend' | 'Database' | 'Cloud' | 'DevOps' | 'Tools' | 'Languages';
+  | 'Backend' | 'Frontend' | 'Framework' | 'Languages' | 'Database' | 'Cloud' | 'DevOps' | 'Tools' | 'Other';
 
 export interface Skill {
   id: ID;
