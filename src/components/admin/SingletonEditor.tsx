@@ -34,7 +34,13 @@ export function SingletonEditor<K extends SingletonTable>({ table, fields, title
   }, [dataKey, data]);
 
   const setVal = (name: string, value: any) => {
-    setForm((prev: any) => ({ ...prev, [name]: value }));
+    setForm((prev: any) => {
+      const next = { ...prev, [name]: value };
+      if (table === 'resume' && name === 'file_url' && value && value !== prev.file_url) {
+        next.uploaded_at = new Date().toISOString();
+      }
+      return next;
+    });
     setDirty(true);
   };
 
