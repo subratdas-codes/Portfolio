@@ -320,7 +320,15 @@ function pendingPatchIds(table: TableName): Set<string> {
 async function execPush(op: FailedOp): Promise<{ error: any }> {
   const from = op.table;
   if (op.kind === 'delete') {
-    const { error } = await supabase!.from(from).delete().eq('id', op.payload.id);
+    let { error } = await supabase!.from(from).delete().eq('id', op.payload.id);
+    if (error && from === 'analytics') {
+      try {
+        const r = await supabase!.rpc('delete_analytics', { p_id: op.payload.id });
+        error = r.error || null;
+      } catch {
+        /* ignore */
+      }
+    }
     return { error };
   }
   if (op.kind === 'insert') {

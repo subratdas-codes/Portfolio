@@ -80,30 +80,18 @@ export function Dashboard() {
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
     setDeleting(true);
+    // Remove from local store first
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
       try {
-        let { error } = await supabase.from('analytics').delete().eq('id', id);
-        if (error) {
-          try {
-            const r = await supabase.rpc('delete_analytics', { p_id: id });
-            if (r.error) console.warn('delete_analytics rpc failed', r.error);
-          } catch {
-            /* ignore */
-          }
-        }
-      } catch {
-        try {
-          await supabase.rpc('delete_analytics', { p_id: id });
-        } catch {
-          /* ignore */
-        }
-      }
+        await supabase.from('analytics').delete().eq('id', id);
+      } catch {}
+      try {
+        await supabase.rpc('delete_analytics', { p_id: id });
+      } catch {}
     }
-    // Force refresh from cloud multiple times to ensure deletion is reflected
     try { await syncFromCloud(); } catch {}
-    try { await new Promise(r => setTimeout(r, 400)); await syncFromCloud(); } catch {}
-    try { await new Promise(r => setTimeout(r, 800)); await syncFromCloud(); } catch {}
+    try { await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
@@ -153,7 +141,7 @@ export function Dashboard() {
     }
     setSelected(new Set());
     try { await syncFromCloud(); } catch {}
-    try { await new Promise(r => setTimeout(r, 500)); await syncFromCloud(); } catch {}
+    try { await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
