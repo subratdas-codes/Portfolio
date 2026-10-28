@@ -270,7 +270,7 @@ export function Analytics() {
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
                 <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
                 <th className="hidden py-2 pr-4 font-medium xl:table-cell">Page</th>
-                <th className="py-2 pr-2 font-medium">Referred From</th>
+                <th className="py-2 pr-2 font-medium">Source (How they found you)</th>
                 <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
@@ -336,7 +336,7 @@ export function Analytics() {
                 <th className="py-2 pr-4 font-medium">IP Address</th>
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
-                <th className="hidden py-2 pr-2 font-medium lg:table-cell">Referred From</th>
+                <th className="hidden py-2 pr-2 font-medium lg:table-cell">Source (How they found you)</th>
                 <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
@@ -387,7 +387,7 @@ export function Analytics() {
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
                 <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
-                <th className="hidden py-2 pr-2 font-medium xl:table-cell">Referred From</th>
+                <th className="hidden py-2 pr-2 font-medium xl:table-cell">Source (How they found you)</th>
                 <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>

@@ -233,7 +233,7 @@ export function Dashboard() {
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="py-2 pr-4 font-medium">Device</th>
                 {activity !== 'project_view' && <th className="py-2 pr-4 font-medium">ISP</th>}
-                <th className="py-2 pr-2 font-medium">Referrer</th>
+                <th className="py-2 pr-2 font-medium">Source (How they found you)</th>
                 <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
