@@ -291,6 +291,7 @@ create table if not exists public.analytics (
   referrer text,
   path text,
   meta text,
+  highlighted boolean not null default false,
   created_at timestamptz default now()
 );
 create index if not exists idx_analytics_type on public.analytics(type);

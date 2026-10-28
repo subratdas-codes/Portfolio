@@ -37,6 +37,7 @@ My_Portfolio/
 │   │   ├── seed.ts             # Initial portfolio content
 │   │   ├── fieldConfigs.ts     # CMS field schemas
 │   │   ├── visitor.ts          # Visitor meta parsing/formatting
+│   │   ├── highlights.ts       # Persistent highlights (localStorage + cloud sync)
 │   │   ├── imageHost.ts        # Image compression + Storage upload
 │   │   ├── github.ts           # GitHub REST API integration
 │   │   ├── assistant.ts        # AI assistant + Web Speech API
@@ -118,6 +119,13 @@ IP · location · ISP · device · browser · source (referrer) · timestamp (DD
 
 Row actions: **click = highlight** (recruiter follow-up), checkbox = select, trash = delete (single or bulk).
 
+Highlights are **persistent by design**: the flag is written to `analytics.highlighted`
+(via `set_analytics_highlight`) and mirrored in `localStorage`, so it survives
+refreshes, browser restarts and other devices until the admin clicks the row (or
+the star) again. The “Highlighted only (n)” filter narrows the list to bookmarked
+visitors. Pending local writes are retried automatically after the SQL migration
+is applied or when the network comes back.
+
 ---
 
 ## 5. Messaging Workflow
@@ -170,6 +178,7 @@ Server (Vercel): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SMTP_*`, `IMAP_*`, `OWNER
 | `add-counter-functions.sql` | View/download increment RPCs |
 | `add-reset-functions.sql` | Admin reset RPCs |
 | `add-analytics-delete.sql` | Analytics delete policy + `delete_analytics` RPC |
+| `add-analytics-highlight.sql` | `highlighted` column + update policy + `set_analytics_highlight` RPC |
 | `update-skill-categories.sql` | Framework / Other categories |
 | `fix-resume-downloads.sql` | Fixes `incr_resume_downloads()` (missing WHERE) |
 | `enable-realtime.sql` | Realtime publication |

@@ -28,7 +28,7 @@ Modules (full CRUD where applicable):
 - Profile, Hero, About, Skills, Education, Experience, Projects, Certificates, Achievements, Coding Profiles, Gallery, Testimonials, Blogs, Social Links, Resume
 - **Dynamic Page Builder** — drag-to-reorder sections, show/hide, add custom sections (Publications, Patents, Talks…), **Save Draft**, **Publish**, **Preview**.
 - **Messages** — read, reply (email + saved in-app), mark read/unread, star, delete, **export CSV**, Gmail/IMAP sync.
-- **Visitor Intelligence** — every page view, project view, resume view/download is enriched server-side with IP, city/region/country, ISP, device and browser; click a row to highlight it (recruiter follow-up), delete single or selected rows.
+- **Visitor Intelligence** — every page view, project view, resume view/download is enriched server-side with IP, city/region/country, ISP, device and browser; click a row to highlight it (recruiter follow-up) — the highlight persists across refreshes and devices until you turn it off; filter to “Highlighted only”, delete single or selected rows.
 - **Analytics** — page views, project views, resume downloads, contact requests, assistant interactions, traffic chart, top referrers/sources, per-project view counts.
 - **Audit Logs** — every create/update/delete/login is tracked.
 - **Settings** — SEO title/description/keywords, theme colors, fonts, OG image, analytics toggle.
@@ -60,6 +60,7 @@ My_Portfolio/
 ├── supabase/             # SQL schema + incremental migrations
 │   ├── schema.sql        # Full schema: tables, RLS, storage, realtime
 │   ├── add-analytics-delete.sql
+│   ├── add-analytics-highlight.sql
 │   ├── add-contact-replies.sql
 │   ├── add-reset-functions.sql
 │   ├── add-resume-views.sql
@@ -75,6 +76,7 @@ My_Portfolio/
 │   │   ├── assistant.ts      # AI assistant logic + Web Speech API
 │   │   ├── fieldConfigs.ts   # Field schemas driving the generic CMS editors
 │   │   ├── visitor.ts        # Visitor meta parsing (IP, geo, ISP, device formatting)
+│   │   ├── highlights.ts     # Persistent analytics highlights (localStorage + cloud sync)
 │   │   ├── imageHost.ts      # Image compression + Supabase Storage upload
 │   │   └── emojis.ts         # Emoji picker categories
 │   ├── hooks/
@@ -118,11 +120,11 @@ The rest of the app needs **no changes**.
 `supabase/schema.sql` contains the full PostgreSQL schema with:
 - 20 tables (profile, hero, about, skills, education, experience, projects, certificates, achievements, gallery, testimonials, blogs, coding_profiles, social_links, contact_messages, contact_replies, resume, settings, sections, analytics, audit_logs)
 - Foreign keys, indexes
-- **Row Level Security** policies (public read, admin write, public analytics insert, admin analytics delete)
+- **Row Level Security** policies (public read, admin write, public analytics insert, admin analytics delete/highlight)
 - Storage bucket + policies for resume/images
 - `updated_at` trigger
 - Counter RPCs: `incr_project_views`, `incr_resume_views`, `incr_resume_downloads`
-- Admin RPCs: `reset_*`, `reset_all_counters`, `delete_analytics`, `add_contact_reply`
+- Admin RPCs: `reset_*`, `reset_all_counters`, `delete_analytics`, `set_analytics_highlight`, `add_contact_reply`
 
 ### Migrations (run once in Supabase SQL Editor)
 | File | Purpose |
@@ -133,6 +135,7 @@ The rest of the app needs **no changes**.
 | `add-counter-functions.sql` | View/download increment RPCs |
 | `add-reset-functions.sql` | Admin reset RPCs |
 | `add-analytics-delete.sql` | Admin delete policy + `delete_analytics` RPC |
+| `add-analytics-highlight.sql` | `highlighted` column + update policy + `set_analytics_highlight` RPC (persistent highlights) |
 | `update-skill-categories.sql` | Framework / Other skill categories (FastAPI, LLM Basics) |
 | `fix-resume-downloads.sql` | Correct `incr_resume_downloads()` (adds missing WHERE) |
 | `enable-realtime.sql` | Realtime publication for live admin updates |

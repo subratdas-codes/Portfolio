@@ -238,6 +238,8 @@ export interface AnalyticsEvent {
   referrer: string;
   path: string;
   meta: string;
+  /** Persistent admin bookmark (see supabase/add-analytics-highlight.sql). */
+  highlighted?: boolean;
   created_at: ISODate;
 }
 

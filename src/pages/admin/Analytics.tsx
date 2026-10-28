@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle, RotateCcw, AlertTriangle, Trash2 } from 'lucide-react';
+import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle, RotateCcw, AlertTriangle, Trash2, Star } from 'lucide-react';
 import { useCollection, useSingleton } from '../../hooks/useStore';
 import { remove, syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
+import { useHighlights, forgetRow } from '../../lib/highlights';
 
 export function Analytics() {
   const analytics = useCollection('analytics');
@@ -14,6 +15,7 @@ export function Analytics() {
   const [showAllResume, setShowAllResume] = useState(false);
   const [showAllVisitors, setShowAllVisitors] = useState(false);
   const [showAllProjects, setShowAllProjects] = useState(false);
+  const [onlyHighlightedVisitors, setOnlyHighlightedVisitors] = useState(false);
 
   const stats = useMemo(() => {
     const byType = (t: string) => analytics.filter((a) => a.type === t).length;
@@ -86,7 +88,10 @@ export function Analytics() {
       });
   }, [analytics]);
   const VISITOR_PAGE = 15;
-  const visibleVisitors = showAllVisitors ? visitorActivity : visitorActivity.slice(0, VISITOR_PAGE);
+  const { highlighted, toggle: toggleHighlight } = useHighlights(analytics);
+  const highlightedVisitorCount = visitorActivity.filter((r) => highlighted.has(r.id)).length;
+  const shownVisitors = onlyHighlightedVisitors ? visitorActivity.filter((r) => highlighted.has(r.id)) : visitorActivity;
+  const visibleVisitors = showAllVisitors ? shownVisitors : shownVisitors.slice(0, VISITOR_PAGE);
 
   // last 14 days
   const days = Array.from({ length: 14 }, (_, i) => {
@@ -123,19 +128,11 @@ export function Analytics() {
 
   const [deleting, setDeleting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
-  const toggleHighlight = (id: string) => {
-    setHighlighted((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
     setDeleting(true);
     remove('analytics', id);
+    forgetRow(id);
     if (supabase && isSupabaseConfigured) {
       try {
         const { error } = await supabase.from('analytics').delete().eq('id', id);
@@ -170,6 +167,7 @@ export function Analytics() {
     setDeleting(true);
     for (const id of ids) {
       remove('analytics', id);
+      forgetRow(id);
       if (supabase && isSupabaseConfigured) {
         try { await supabase.from('analytics').delete().eq('id', id); } catch {}
         try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
@@ -255,9 +253,23 @@ export function Analytics() {
       </div>
 
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
-        <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 font-semibold text-white"><Globe size={16} className="text-indigo-400" /> Who Visited the Site</h3>
-          <div className="flex items-center gap-2">{selected.size > 0 && <button disabled={deleting} onClick={() => deleteSelected(visibleVisitors)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"><Trash2 size={12} />{deleting ? 'Deleting...' : `Delete selected (${selected.size})`}</button>}<span className="text-xs text-slate-500">{stats.pageViews} visits total</span></div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button
+              onClick={() => setOnlyHighlightedVisitors((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                onlyHighlightedVisitors
+                  ? 'border-amber-400/40 bg-amber-500/15 text-amber-300'
+                  : 'border-white/10 bg-white/5 text-slate-300 hover:border-amber-400/40 hover:bg-white/10 hover:text-amber-300'
+              }`}
+              title="Show only highlighted visitors"
+            >
+              <Star size={12} fill={onlyHighlightedVisitors ? 'currentColor' : 'none'} /> {onlyHighlightedVisitors ? `Showing highlighted (${shownVisitors.length})` : `Highlighted only (${highlightedVisitorCount})`}
+            </button>
+            {selected.size > 0 && <button disabled={deleting} onClick={() => deleteSelected(visitorActivity)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"><Trash2 size={12} />{deleting ? 'Deleting...' : `Delete selected (${selected.size})`}</button>}
+            <span className="text-xs text-slate-500">{stats.pageViews} visits total</span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
@@ -286,23 +298,30 @@ export function Analytics() {
                   <td className="hidden max-w-[140px] truncate py-2 pr-4 text-slate-500 xl:table-cell">{e.path}</td>
                   <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
                   <td className="py-2 text-right">
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); toggleHighlight(e.id); }}
+                      className={`rounded p-1 transition ${highlighted.has(e.id) ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-amber-500/10 hover:text-amber-400'}`}
+                      title={highlighted.has(e.id) ? 'Remove highlight' : 'Highlight this visitor (stays until removed)'}
+                    >
+                      <Star size={14} fill={highlighted.has(e.id) ? 'currentColor' : 'none'} />
+                    </button>
                     <button disabled={deleting} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
-              {visitorActivity.length === 0 && (
-                <tr><td colSpan={9} className="py-6 text-center text-slate-500">No site visits recorded yet.</td></tr>
+              {shownVisitors.length === 0 && (
+                <tr><td colSpan={9} className="py-6 text-center text-slate-500">{onlyHighlightedVisitors ? 'No highlighted visitors yet — click a row to highlight it.' : 'No site visits recorded yet.'}</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        {visitorActivity.length > VISITOR_PAGE && (
+        {shownVisitors.length > VISITOR_PAGE && (
           <div className="mt-4 flex justify-center">
             <button
               onClick={() => setShowAllVisitors((v) => !v)}
               className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-indigo-400/40 hover:bg-white/10 hover:text-white"
             >
-              {showAllVisitors ? 'Show less' : `See more (${visitorActivity.length - VISITOR_PAGE} more)`}
+              {showAllVisitors ? 'Show less' : `See more (${shownVisitors.length - VISITOR_PAGE} more)`}
             </button>
           </div>
         )}
@@ -342,7 +361,7 @@ export function Analytics() {
             </thead>
             <tbody>
               {visibleProjectViews.map((e, i) => (
-                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
+                <tr key={e.id} onClick={() => toggleHighlight(e.id)} className={`cursor-pointer border-b border-white/5 text-slate-300 ${highlighted.has(e.id) ? 'bg-amber-500/10' : i === 0 ? 'bg-indigo-500/10' : ''}`}>
                   <td className="py-2 pr-4 font-medium text-white">{e.project}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-500">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
@@ -350,7 +369,14 @@ export function Analytics() {
                   <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
                   <td className="hidden max-w-[180px] truncate py-2 pr-2 text-slate-500 lg:table-cell">{e.referrer}</td>
                   <td className="py-2 text-right">
-                    <button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); toggleHighlight(e.id); }}
+                      className={`rounded p-1 transition ${highlighted.has(e.id) ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-amber-500/10 hover:text-amber-400'}`}
+                      title={highlighted.has(e.id) ? 'Remove highlight' : 'Highlight this visitor (stays until removed)'}
+                    >
+                      <Star size={14} fill={highlighted.has(e.id) ? 'currentColor' : 'none'} />
+                    </button>
+                    <button onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
@@ -395,7 +421,7 @@ export function Analytics() {
               {visibleResumeActivity.map((e, i) => {
                 const isDownload = e.type === 'resume_download';
                 return (
-                  <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-emerald-500/10' : ''}`}>
+                  <tr key={e.id} onClick={() => toggleHighlight(e.id)} className={`cursor-pointer border-b border-white/5 text-slate-300 ${highlighted.has(e.id) ? 'bg-amber-500/10' : i === 0 ? 'bg-emerald-500/10' : ''}`}>
                     <td className="py-2 pr-4">
                       <span className={`rounded px-2 py-0.5 text-xs font-medium ${isDownload ? 'bg-emerald-500/15 text-emerald-300' : 'bg-violet-500/15 text-violet-300'}`}>
                         {isDownload ? 'Download' : 'View'}
@@ -408,7 +434,14 @@ export function Analytics() {
                     <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 lg:table-cell">{e.info.isp || '—'}</td>
                     <td className="hidden max-w-[180px] truncate py-2 pr-2 text-slate-500 xl:table-cell">{e.referrer}</td>
                     <td className="py-2 text-right">
-                      <button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
+                      <button
+                        onClick={(ev) => { ev.stopPropagation(); toggleHighlight(e.id); }}
+                        className={`rounded p-1 transition ${highlighted.has(e.id) ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-amber-500/10 hover:text-amber-400'}`}
+                        title={highlighted.has(e.id) ? 'Remove highlight' : 'Highlight this visitor (stays until removed)'}
+                      >
+                        <Star size={14} fill={highlighted.has(e.id) ? 'currentColor' : 'none'} />
+                      </button>
+                      <button onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 );

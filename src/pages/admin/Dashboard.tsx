@@ -10,6 +10,7 @@ import { remove, syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { Modal } from '../../components/ui/Modal';
 import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
+import { useHighlights, forgetRow } from '../../lib/highlights';
 
 type ActivityType = 'page_view' | 'resume_download' | 'resume_view' | 'project_view';
 
@@ -74,22 +75,17 @@ export function Dashboard() {
     : activity === 'resume_view' ? 'Who Viewed the Resume'
     : 'Who Downloaded the Resume';
   const ACTIVITY_PAGE = 15;
-  const visibleActivityRows = expanded ? activityRows : activityRows.slice(0, ACTIVITY_PAGE);
-
   const [deleting, setDeleting] = useState(false);
-  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
-  const toggleHighlight = (id: string) => {
-    setHighlighted((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
+  const { highlighted, toggle: toggleHighlight } = useHighlights(analytics);
+  const [onlyHighlighted, setOnlyHighlighted] = useState(false);
+  const highlightedCount = activityRows.filter((r) => highlighted.has(r.id)).length;
+  const shownActivityRows = onlyHighlighted ? activityRows.filter((r) => highlighted.has(r.id)) : activityRows;
+  const visibleActivityRows = expanded ? shownActivityRows : shownActivityRows.slice(0, ACTIVITY_PAGE);
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
     setDeleting(true);
     remove('analytics', id);
+    forgetRow(id);
     if (supabase && isSupabaseConfigured) {
       const url = (supabase as any).supabaseUrl;
       const key = (supabase as any).supabaseKey;
@@ -133,6 +129,7 @@ export function Dashboard() {
     const ids = Array.from(selected);
     for (const id of ids) {
       remove('analytics', id);
+      forgetRow(id);
       if (supabase && isSupabaseConfigured) {
         try { await supabase.from('analytics').delete().eq('id', id); } catch {}
         try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
@@ -204,12 +201,23 @@ export function Dashboard() {
         })}
       </div>
 
-      <Modal open={!!activity} onClose={() => { setActivity(null); setSelected(new Set()); setExpanded(false); }} title={activityTitle} maxWidth="max-w-5xl">
+      <Modal open={!!activity} onClose={() => { setActivity(null); setSelected(new Set()); setExpanded(false); setOnlyHighlighted(false); }} title={activityTitle} maxWidth="max-w-5xl">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
             {activityRows.length} recorded {activity === 'project_view' ? 'project opens' : activity === 'resume_view' ? 'resume views' : activity === 'page_view' ? 'site visits' : 'resume downloads'}, newest first.
           </p>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setOnlyHighlighted((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+                onlyHighlighted
+                  ? 'border-amber-400/40 bg-amber-500/15 text-amber-300'
+                  : 'border-white/10 bg-white/5 text-slate-300 hover:border-amber-400/40 hover:bg-white/10 hover:text-amber-300'
+              }`}
+              title="Show only highlighted rows"
+            >
+              <Star size={12} fill={onlyHighlighted ? 'currentColor' : 'none'} /> {onlyHighlighted ? `Showing highlighted (${shownActivityRows.length})` : `Highlighted only (${highlightedCount})`}
+            </button>
             {selected.size > 0 && (
               <button disabled={deleting} onClick={deleteSelected} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-50">
                 <Trash2 size={12} /> {deleting ? 'Deleting...' : `Delete selected (${selected.size})`}
@@ -248,22 +256,31 @@ export function Dashboard() {
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.device}</td>
                   {activity !== 'project_view' && <td className="max-w-[160px] truncate py-2 pr-4 text-slate-500">{e.info.isp || '—'}</td>}
                   <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
-                  <td className="py-2 text-right"><button disabled={deleting} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button></td>
+                  <td className="whitespace-nowrap py-2 text-right">
+                    <button
+                      onClick={(ev) => { ev.stopPropagation(); toggleHighlight(e.id); }}
+                      className={`rounded p-1 transition ${highlighted.has(e.id) ? 'text-amber-400 hover:bg-amber-500/10' : 'text-slate-500 hover:bg-amber-500/10 hover:text-amber-400'}`}
+                      title={highlighted.has(e.id) ? 'Remove highlight' : 'Highlight this visitor (stays until removed)'}
+                    >
+                      <Star size={14} fill={highlighted.has(e.id) ? 'currentColor' : 'none'} />
+                    </button>
+                    <button disabled={deleting} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button>
+                  </td>
                 </tr>
               ))}
-              {activityRows.length === 0 && (
-                <tr><td colSpan={activity === 'project_view' ? 9 : 10} className="py-8 text-center text-slate-500">Nothing recorded yet.</td></tr>
+              {shownActivityRows.length === 0 && (
+                <tr><td colSpan={activity === 'project_view' ? 9 : 10} className="py-8 text-center text-slate-500">{onlyHighlighted ? 'No highlighted rows here yet — click a row to highlight it.' : 'Nothing recorded yet.'}</td></tr>
               )}
             </tbody>
           </table>
         </div>
-        {activityRows.length > ACTIVITY_PAGE && (
+        {shownActivityRows.length > ACTIVITY_PAGE && (
           <div className="mt-4 flex justify-center">
             <button
               onClick={() => setExpanded((v) => !v)}
               className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-300 transition hover:border-indigo-400/40 hover:bg-white/10 hover:text-white"
             >
-              {expanded ? 'Show less' : `See more (${activityRows.length - ACTIVITY_PAGE} more)`}
+              {expanded ? 'Show less' : `See more (${shownActivityRows.length - ACTIVITY_PAGE} more)`}
             </button>
           </div>
         )}
