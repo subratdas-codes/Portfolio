@@ -123,13 +123,16 @@ export function Analytics() {
 
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
-    // Remove locally and push delete to Supabase (RLS allows authenticated admin)
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
       try {
         await supabase.from('analytics').delete().eq('id', id);
       } catch {
-        /* store queue will retry on next sync */
+        try {
+          await supabase.rpc('delete_analytics', { p_id: id });
+        } catch {
+          /* store queue will retry on next sync */
+        }
       }
     }
   };

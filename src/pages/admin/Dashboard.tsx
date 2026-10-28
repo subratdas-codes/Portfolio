@@ -83,7 +83,11 @@ export function Dashboard() {
       try {
         await supabase.from('analytics').delete().eq('id', id);
       } catch {
-        /* ignore */
+        try {
+          await supabase.rpc('delete_analytics', { p_id: id });
+        } catch {
+          /* store queue will retry */
+        }
       }
     }
   };
@@ -99,7 +103,8 @@ export function Dashboard() {
   };
   const toggleSelectAll = () => {
     if (visibleActivityRows.length === 0) return;
-    if (selected.size === visibleActivityRows.length && visibleActivityRows.every((r) => selected.has(r.id))) {
+    const allVisibleSelected = visibleActivityRows.every((r) => selected.has(r.id));
+    if (allVisibleSelected && selected.size > 0) {
       setSelected(new Set());
     } else {
       setSelected(new Set(visibleActivityRows.map((r) => r.id)));
@@ -108,13 +113,18 @@ export function Dashboard() {
   const deleteSelected = async () => {
     if (selected.size === 0) return;
     if (!window.confirm(`Delete ${selected.size} selected analytics entries?`)) return;
-    for (const id of Array.from(selected)) {
+    const ids = Array.from(selected);
+    for (const id of ids) {
       remove('analytics', id);
       if (supabase && isSupabaseConfigured) {
         try {
           await supabase.from('analytics').delete().eq('id', id);
         } catch {
-          /* ignore */
+          try {
+            await supabase.rpc('delete_analytics', { p_id: id });
+          } catch {
+            /* ignore */
+          }
         }
       }
     }
