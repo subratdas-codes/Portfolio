@@ -77,6 +77,15 @@ export function Dashboard() {
   const visibleActivityRows = expanded ? activityRows : activityRows.slice(0, ACTIVITY_PAGE);
 
   const [deleting, setDeleting] = useState(false);
+  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
+  const toggleHighlight = (id: string) => {
+    setHighlighted((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
     setDeleting(true);
@@ -87,34 +96,15 @@ export function Dashboard() {
       try {
         await fetch(`${url}/rest/v1/analytics?id=eq.${encodeURIComponent(id)}`, {
           method: 'DELETE',
-          headers: {
-            apikey: key,
-            Authorization: `Bearer ${key}`,
-            Prefer: 'return=representation'
-          }
+          headers: { apikey: key, Authorization: `Bearer ${key}`, Prefer: 'return=representation' }
         });
       } catch {}
-      try {
-        await fetch(`${url}/rest/v1/analytics?id=eq.${encodeURIComponent(id)}`, {
-          method: 'DELETE',
-          headers: {
-            apikey: key,
-            Authorization: `Bearer ${key}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({})
-        });
-      } catch {}
-      try {
-        await supabase.from('analytics').delete().eq('id', id);
-      } catch {}
-      try {
-        await supabase.rpc('delete_analytics', { p_id: id });
-      } catch {}
+      try { await supabase.from('analytics').delete().eq('id', id); } catch {}
+      try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
     }
     try { await syncFromCloud(); } catch {}
-    try { await new Promise(r=>setTimeout(r,400)); await syncFromCloud(); } catch {}
-    try { await new Promise(r=>setTimeout(r,400)); await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
@@ -144,22 +134,8 @@ export function Dashboard() {
     for (const id of ids) {
       remove('analytics', id);
       if (supabase && isSupabaseConfigured) {
-        try {
-          const { error } = await supabase.from('analytics').delete().eq('id', id);
-          if (error) {
-            try {
-              await supabase.rpc('delete_analytics', { p_id: id });
-            } catch {
-              /* ignore */
-            }
-          }
-        } catch {
-          try {
-            await supabase.rpc('delete_analytics', { p_id: id });
-          } catch {
-            /* ignore */
-          }
-        }
+        try { await supabase.from('analytics').delete().eq('id', id); } catch {}
+        try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
       }
     }
     setSelected(new Set());
@@ -263,8 +239,8 @@ export function Dashboard() {
             </thead>
             <tbody>
               {visibleActivityRows.map((e) => (
-                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${selected.has(e.id) ? 'bg-rose-500/5' : ''}`}>
-                  <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="rounded border-white/20 bg-white/5" /></td>
+                <tr key={e.id} onClick={() => toggleHighlight(e.id)} className={`cursor-pointer border-b border-white/5 text-slate-300 ${highlighted.has(e.id) ? 'bg-amber-500/10' : selected.has(e.id) ? 'bg-rose-500/5' : ''}`}>
+                  <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={(ev) => { ev.stopPropagation(); toggleSelect(e.id); }} className="rounded border-white/20 bg-white/5" /></td>
                   {activity === 'project_view' && <td className="py-2 pr-4 font-medium text-white">{e.project}</td>}
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
@@ -272,7 +248,7 @@ export function Dashboard() {
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.device}</td>
                   {activity !== 'project_view' && <td className="max-w-[160px] truncate py-2 pr-4 text-slate-500">{e.info.isp || '—'}</td>}
                   <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
-                  <td className="py-2 text-right"><button disabled={deleting} onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button></td>
+                  <td className="py-2 text-right"><button disabled={deleting} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button></td>
                 </tr>
               ))}
               {activityRows.length === 0 && (
