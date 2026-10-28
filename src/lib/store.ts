@@ -440,7 +440,7 @@ async function fetchTableRows(t: TableName): Promise<{ table: TableName; rows: a
  *  This is what stops a slow/failed cloud write from resurrecting deleted items
  *  or dropping new ones on the next poll/realtime event. */
 function applyCloudRows(table: TableName, rows: any[]): void {
-  if (!Array.isArray(rows) || !rows.length) return;
+  if (!Array.isArray(rows)) return;
   let next = rows;
   const dels = pendingDeleteIds(table);
   if (dels.size) next = next.filter((r) => r && !dels.has(String((r as { id?: string }).id)));
@@ -454,7 +454,6 @@ function applyCloudRows(table: TableName, rows: any[]): void {
     const localById = new Map(((db[table] as unknown[]) ?? []).map((r) => [String((r as { id?: string }).id), r]));
     next = next.map((r) => (patches.has(String((r as { id?: string }).id)) ? localById.get(String((r as { id?: string }).id)) ?? r : r));
   }
-  if (!next.length) return;
   (db as any)[table] = formatFetched(table, next);
   persistLocal();
 }
@@ -668,11 +667,11 @@ export function remove<K extends CollectionTable>(table: K, id: string): void {
   if (idx >= 0) {
     arr.splice(idx, 1);
     audit('delete', table, id, 'Deleted ' + table);
-    emit();
   }
   // Always push (idempotent): if a previous delete failed offline, calling
   // remove() again re-sends it even though the row is already gone locally.
   pushTable('delete', table, { id });
+  emit();
 }
 
 export function getCollectionOrder(table: CollectionTable): string[] {
