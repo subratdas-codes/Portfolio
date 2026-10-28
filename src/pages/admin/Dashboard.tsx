@@ -82,14 +82,27 @@ export function Dashboard() {
     setDeleting(true);
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
+      const url = (supabase as any).supabaseUrl;
+      const key = (supabase as any).supabaseKey;
       try {
-        await fetch(`${(supabase as any).supabaseUrl}/rest/v1/analytics?id=eq.${encodeURIComponent(id)}`, {
+        await fetch(`${url}/rest/v1/analytics?id=eq.${encodeURIComponent(id)}`, {
           method: 'DELETE',
           headers: {
-            apikey: (supabase as any).supabaseKey,
-            Authorization: `Bearer ${(supabase as any).supabaseKey}`,
-            Prefer: 'return=minimal'
+            apikey: key,
+            Authorization: `Bearer ${key}`,
+            Prefer: 'return=representation'
           }
+        });
+      } catch {}
+      try {
+        await fetch(`${url}/rest/v1/analytics?id=eq.${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: {
+            apikey: key,
+            Authorization: `Bearer ${key}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({})
         });
       } catch {}
       try {
@@ -100,8 +113,8 @@ export function Dashboard() {
       } catch {}
     }
     try { await syncFromCloud(); } catch {}
-    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
-    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,400)); await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,400)); await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
