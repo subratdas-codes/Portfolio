@@ -145,7 +145,7 @@ export function Analytics() {
         }
       }
     }
-    await syncFromCloud();
+    try { await syncFromCloud(); } catch {}
     setDeleting(false);
   };
   const toggleSelect = (id: string) => {
@@ -189,7 +189,7 @@ export function Analytics() {
       }
     }
     setSelected(new Set());
-    await syncFromCloud();
+    try { await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 

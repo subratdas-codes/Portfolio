@@ -99,7 +99,7 @@ export function Dashboard() {
         }
       }
     }
-    await syncFromCloud();
+    try { await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
@@ -148,7 +148,7 @@ export function Dashboard() {
       }
     }
     setSelected(new Set());
-    await syncFromCloud();
+    try { await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
