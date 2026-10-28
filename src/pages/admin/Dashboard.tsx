@@ -83,10 +83,11 @@ export function Dashboard() {
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
       try {
-        const { error } = await supabase.from('analytics').delete().eq('id', id);
+        let { error } = await supabase.from('analytics').delete().eq('id', id);
         if (error) {
           try {
-            await supabase.rpc('delete_analytics', { p_id: id });
+            const r = await supabase.rpc('delete_analytics', { p_id: id });
+            if (r.error) console.warn('delete_analytics rpc failed', r.error);
           } catch {
             /* ignore */
           }
@@ -99,7 +100,10 @@ export function Dashboard() {
         }
       }
     }
+    // Force refresh from cloud multiple times to ensure deletion is reflected
     try { await syncFromCloud(); } catch {}
+    try { await new Promise(r => setTimeout(r, 400)); await syncFromCloud(); } catch {}
+    try { await new Promise(r => setTimeout(r, 800)); await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
@@ -149,6 +153,7 @@ export function Dashboard() {
     }
     setSelected(new Set());
     try { await syncFromCloud(); } catch {}
+    try { await new Promise(r => setTimeout(r, 500)); await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
