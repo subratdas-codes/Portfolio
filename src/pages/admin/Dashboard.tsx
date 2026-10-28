@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Eye, Download, FolderGit2, Mail, TrendingUp, Bot,
-  Users, Star, Clock, ArrowRight, FileText, Award, Cloud,
+  Users, Star, Clock, ArrowRight, FileText, Award, Cloud, Trash2,
 } from 'lucide-react';
 import { useCollection, useSingleton } from '../../hooks/useStore';
-import { syncFromCloud } from '../../lib/store';
+import { remove, syncFromCloud } from '../../lib/store';
+import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { Modal } from '../../components/ui/Modal';
 import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
 
@@ -75,6 +76,51 @@ export function Dashboard() {
   const ACTIVITY_PAGE = 15;
   const visibleActivityRows = expanded ? activityRows : activityRows.slice(0, ACTIVITY_PAGE);
 
+  const deleteEvent = async (id: string) => {
+    if (!window.confirm('Delete this analytics entry?')) return;
+    remove('analytics', id);
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await supabase.from('analytics').delete().eq('id', id);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = () => {
+    if (visibleActivityRows.length === 0) return;
+    if (selected.size === visibleActivityRows.length && visibleActivityRows.every((r) => selected.has(r.id))) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(visibleActivityRows.map((r) => r.id)));
+    }
+  };
+  const deleteSelected = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Delete ${selected.size} selected analytics entries?`)) return;
+    for (const id of Array.from(selected)) {
+      remove('analytics', id);
+      if (supabase && isSupabaseConfigured) {
+        try {
+          await supabase.from('analytics').delete().eq('id', id);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    setSelected(new Set());
+  };
+
   const quickLinks = [
     { to: 'profile', label: 'Edit Profile', icon: Users },
     { to: 'projects', label: 'Manage Projects', icon: FolderGit2 },
@@ -134,42 +180,55 @@ export function Dashboard() {
         })}
       </div>
 
-      <Modal open={!!activity} onClose={() => setActivity(null)} title={activityTitle} maxWidth="max-w-4xl">
-        <div className="mb-4 flex items-center justify-between gap-3">
+      <Modal open={!!activity} onClose={() => { setActivity(null); setSelected(new Set()); setExpanded(false); }} title={activityTitle} maxWidth="max-w-5xl">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-slate-500">
             {activityRows.length} recorded {activity === 'project_view' ? 'project opens' : activity === 'resume_view' ? 'resume views' : activity === 'page_view' ? 'site visits' : 'resume downloads'}, newest first.
           </p>
-          <span className="flex items-center gap-1.5 text-xs text-emerald-400">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live · refreshes every 5s
-          </span>
+          <div className="flex items-center gap-3">
+            {selected.size > 0 && (
+              <button onClick={deleteSelected} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20">
+                <Trash2 size={12} /> Delete selected ({selected.size})
+              </button>
+            )}
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live · refreshes every 5s
+            </span>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
+                <th className="py-2 pr-3 font-medium">
+                  <input type="checkbox" checked={visibleActivityRows.length > 0 && visibleActivityRows.every((r) => selected.has(r.id))} onChange={toggleSelectAll} className="rounded border-white/20 bg-white/5" />
+                </th>
                 {activity === 'project_view' && <th className="py-2 pr-4 font-medium">Project</th>}
                 <th className="py-2 pr-4 font-medium">When</th>
                 <th className="py-2 pr-4 font-medium">IP</th>
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="py-2 pr-4 font-medium">Device</th>
                 {activity !== 'project_view' && <th className="py-2 pr-4 font-medium">ISP</th>}
-                <th className="py-2 font-medium">Referrer</th>
+                <th className="py-2 pr-2 font-medium">Referrer</th>
+                <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
               {visibleActivityRows.map((e) => (
                 <tr key={e.id} className="border-b border-white/5 text-slate-300">
+                  <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="rounded border-white/20 bg-white/5" /></td>
                   {activity === 'project_view' && <td className="py-2 pr-4 font-medium text-white">{e.project}</td>}
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
-                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.device}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slte-400">{e.device}</td>
                   {activity !== 'project_view' && <td className="max-w-[160px] truncate py-2 pr-4 text-slate-500">{e.info.isp || '—'}</td>}
-                  <td className="max-w-[180px] truncate py-2 text-slate-500">{e.referrer}</td>
+                  <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
+                  <td className="py-2 text-right"><button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button></td>
                 </tr>
               ))}
               {activityRows.length === 0 && (
-                <tr><td colSpan={activity === 'project_view' ? 6 : 7} className="py-8 text-center text-slate-500">Nothing recorded yet.</td></tr>
+                <tr><td colSpan={activity === 'project_view' ? 9 : 10} className="py-8 text-center text-slate-500">Nothing recorded yet.</td></tr>
               )}
             </tbody>
           </table>
