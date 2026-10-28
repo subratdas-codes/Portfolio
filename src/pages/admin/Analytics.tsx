@@ -121,20 +121,76 @@ export function Analytics() {
     setTimeout(() => setResetMsg(null), 3000);
   };
 
+  const [deleting, setDeleting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
+    setDeleting(true);
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
       try {
-        await supabase.from('analytics').delete().eq('id', id);
+        const { error } = await supabase.from('analytics').delete().eq('id', id);
+        if (error) {
+          try {
+            await supabase.rpc('delete_analytics', { p_id: id });
+          } catch {
+            /* ignore */
+          }
+        }
       } catch {
         try {
           await supabase.rpc('delete_analytics', { p_id: id });
         } catch {
-          /* store queue will retry on next sync */
+          /* ignore */
         }
       }
     }
+    await syncFromCloud();
+    setDeleting(false);
+  };
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAll = (rows: Array<{id:string}>) => {
+    if (rows.length === 0) return;
+    const all = rows.every((r) => selected.has(r.id));
+    if (all && selected.size > 0) setSelected(new Set());
+    else setSelected(new Set(rows.map((r) => r.id)));
+  };
+  const deleteSelected = async (rows: Array<{id:string}>) => {
+    const ids = rows.filter((r) => selected.has(r.id)).map((r) => r.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(`Delete ${ids.length} selected analytics entries?`)) return;
+    setDeleting(true);
+    for (const id of ids) {
+      remove('analytics', id);
+      if (supabase && isSupabaseConfigured) {
+        try {
+          const { error } = await supabase.from('analytics').delete().eq('id', id);
+          if (error) {
+            try {
+              await supabase.rpc('delete_analytics', { p_id: id });
+            } catch {
+              /* ignore */
+            }
+          }
+        } catch {
+          try {
+            await supabase.rpc('delete_analytics', { p_id: id });
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+    setSelected(new Set());
+    await syncFromCloud();
+    setDeleting(false);
   };
 
   const resetAll = async () => {
@@ -214,25 +270,27 @@ export function Analytics() {
       <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
         <div className="mb-4 flex items-center justify-between gap-2">
           <h3 className="flex items-center gap-2 font-semibold text-white"><Globe size={16} className="text-indigo-400" /> Who Visited the Site</h3>
-          <span className="text-xs text-slate-500">{stats.pageViews} visits total</span>
+          <div className="flex items-center gap-2">{selected.size > 0 && <button disabled={deleting} onClick={() => deleteSelected(visibleVisitors)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-2.5 py-1 text-xs text-rose-300 hover:bg-rose-500/20 disabled:opacity-50"><Trash2 size={12} />{deleting ? 'Deleting...' : `Delete selected (${selected.size})`}</button>}<span className="text-xs text-slate-500">{stats.pageViews} visits total</span></div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-white/10 text-xs uppercase tracking-wider text-slate-500">
+                <th className="py-2 pr-3 font-medium"><input type="checkbox" checked={visibleVisitors.length > 0 && visibleVisitors.every(r => selected.has(r.id))} onChange={() => toggleSelectAll(visibleVisitors)} className="rounded border-white/20 bg-white/5" /></th>
                 <th className="py-2 pr-4 font-medium"><Clock size={11} className="inline" /> When</th>
                 <th className="py-2 pr-4 font-medium">IP Address</th>
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
                 <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
                 <th className="hidden py-2 pr-4 font-medium xl:table-cell">Page</th>
-                <th className="py-2 font-medium">Referred From</th>
+                <th className="py-2 pr-2 font-medium">Referred From</th>
                 <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
               {visibleVisitors.map((e, i) => (
-                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
+                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${selected.has(e.id) ? 'bg-rose-500/5' : i === 0 ? 'bg-indigo-500/10' : ''}`}>
+                  <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="rounded border-white/20 bg-white/5" /></td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
@@ -241,12 +299,12 @@ export function Analytics() {
                   <td className="hidden max-w-[140px] truncate py-2 pr-4 text-slate-500 xl:table-cell">{e.path}</td>
                   <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
                   <td className="py-2 text-right">
-                    <button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
+                    <button disabled={deleting} onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
               {visitorActivity.length === 0 && (
-                <tr><td colSpan={8} className="py-6 text-center text-slate-500">No site visits recorded yet.</td></tr>
+                <tr><td colSpan={9} className="py-6 text-center text-slate-500">No site visits recorded yet.</td></tr>
               )}
             </tbody>
           </table>

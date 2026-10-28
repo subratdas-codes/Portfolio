@@ -76,20 +76,31 @@ export function Dashboard() {
   const ACTIVITY_PAGE = 15;
   const visibleActivityRows = expanded ? activityRows : activityRows.slice(0, ACTIVITY_PAGE);
 
+  const [deleting, setDeleting] = useState(false);
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
+    setDeleting(true);
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
       try {
-        await supabase.from('analytics').delete().eq('id', id);
+        const { error } = await supabase.from('analytics').delete().eq('id', id);
+        if (error) {
+          try {
+            await supabase.rpc('delete_analytics', { p_id: id });
+          } catch {
+            /* ignore */
+          }
+        }
       } catch {
         try {
           await supabase.rpc('delete_analytics', { p_id: id });
         } catch {
-          /* store queue will retry */
+          /* ignore */
         }
       }
     }
+    await syncFromCloud();
+    setDeleting(false);
   };
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -113,12 +124,20 @@ export function Dashboard() {
   const deleteSelected = async () => {
     if (selected.size === 0) return;
     if (!window.confirm(`Delete ${selected.size} selected analytics entries?`)) return;
+    setDeleting(true);
     const ids = Array.from(selected);
     for (const id of ids) {
       remove('analytics', id);
       if (supabase && isSupabaseConfigured) {
         try {
-          await supabase.from('analytics').delete().eq('id', id);
+          const { error } = await supabase.from('analytics').delete().eq('id', id);
+          if (error) {
+            try {
+              await supabase.rpc('delete_analytics', { p_id: id });
+            } catch {
+              /* ignore */
+            }
+          }
         } catch {
           try {
             await supabase.rpc('delete_analytics', { p_id: id });
@@ -129,6 +148,8 @@ export function Dashboard() {
       }
     }
     setSelected(new Set());
+    await syncFromCloud();
+    setDeleting(false);
   };
 
   const quickLinks = [
@@ -197,8 +218,8 @@ export function Dashboard() {
           </p>
           <div className="flex items-center gap-3">
             {selected.size > 0 && (
-              <button onClick={deleteSelected} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20">
-                <Trash2 size={12} /> Delete selected ({selected.size})
+              <button disabled={deleting} onClick={deleteSelected} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-400/30 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-300 hover:bg-rose-500/20 disabled:opacity-50">
+                <Trash2 size={12} /> {deleting ? 'Deleting...' : `Delete selected (${selected.size})`}
               </button>
             )}
             <span className="flex items-center gap-1.5 text-xs text-emerald-400">
@@ -225,16 +246,16 @@ export function Dashboard() {
             </thead>
             <tbody>
               {visibleActivityRows.map((e) => (
-                <tr key={e.id} className="border-b border-white/5 text-slate-300">
+                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${selected.has(e.id) ? 'bg-rose-500/5' : ''}`}>
                   <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="rounded border-white/20 bg-white/5" /></td>
                   {activity === 'project_view' && <td className="py-2 pr-4 font-medium text-white">{e.project}</td>}
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
-                  <td className="whitespace-nowrap py-2 pr-4 text-slte-400">{e.device}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.device}</td>
                   {activity !== 'project_view' && <td className="max-w-[160px] truncate py-2 pr-4 text-slate-500">{e.info.isp || '—'}</td>}
                   <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
-                  <td className="py-2 text-right"><button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button></td>
+                  <td className="py-2 text-right"><button disabled={deleting} onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button></td>
                 </tr>
               ))}
               {activityRows.length === 0 && (
