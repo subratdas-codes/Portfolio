@@ -123,6 +123,15 @@ export function Analytics() {
 
   const [deleting, setDeleting] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
+  const toggleHighlight = (id: string) => {
+    setHighlighted((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
     setDeleting(true);
@@ -131,18 +140,10 @@ export function Analytics() {
       try {
         const { error } = await supabase.from('analytics').delete().eq('id', id);
         if (error) {
-          try {
-            await supabase.rpc('delete_analytics', { p_id: id });
-          } catch {
-            /* ignore */
-          }
+          try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
         }
       } catch {
-        try {
-          await supabase.rpc('delete_analytics', { p_id: id });
-        } catch {
-          /* ignore */
-        }
+        try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
       }
     }
     try { await syncFromCloud(); } catch {}
@@ -170,22 +171,8 @@ export function Analytics() {
     for (const id of ids) {
       remove('analytics', id);
       if (supabase && isSupabaseConfigured) {
-        try {
-          const { error } = await supabase.from('analytics').delete().eq('id', id);
-          if (error) {
-            try {
-              await supabase.rpc('delete_analytics', { p_id: id });
-            } catch {
-              /* ignore */
-            }
-          }
-        } catch {
-          try {
-            await supabase.rpc('delete_analytics', { p_id: id });
-          } catch {
-            /* ignore */
-          }
-        }
+        try { await supabase.from('analytics').delete().eq('id', id); } catch {}
+        try { await supabase.rpc('delete_analytics', { p_id: id }); } catch {}
       }
     }
     setSelected(new Set());
@@ -289,8 +276,8 @@ export function Analytics() {
             </thead>
             <tbody>
               {visibleVisitors.map((e, i) => (
-                <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${selected.has(e.id) ? 'bg-rose-500/5' : i === 0 ? 'bg-indigo-500/10' : ''}`}>
-                  <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={() => toggleSelect(e.id)} className="rounded border-white/20 bg-white/5" /></td>
+                <tr key={e.id} onClick={() => toggleHighlight(e.id)} className={`cursor-pointer border-b border-white/5 text-slate-300 ${highlighted.has(e.id) ? 'bg-amber-500/10' : selected.has(e.id) ? 'bg-rose-500/5' : i === 0 ? 'bg-indigo-500/10' : ''}`}>
+                  <td className="py-2 pr-3"><input type="checkbox" checked={selected.has(e.id)} onChange={(ev) => { ev.stopPropagation(); toggleSelect(e.id); }} className="rounded border-white/20 bg-white/5" /></td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
@@ -299,7 +286,7 @@ export function Analytics() {
                   <td className="hidden max-w-[140px] truncate py-2 pr-4 text-slate-500 xl:table-cell">{e.path}</td>
                   <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
                   <td className="py-2 text-right">
-                    <button disabled={deleting} onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button>
+                    <button disabled={deleting} onClick={(ev) => { ev.stopPropagation(); deleteEvent(e.id); }} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400 disabled:opacity-50" title="Delete this entry"><Trash2 size={14} /></button>
                   </td>
                 </tr>
               ))}
