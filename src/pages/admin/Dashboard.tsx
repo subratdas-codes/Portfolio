@@ -160,7 +160,7 @@ export function Dashboard() {
               {visibleActivityRows.map((e) => (
                 <tr key={e.id} className="border-b border-white/5 text-slate-300">
                   {activity === 'project_view' && <td className="py-2 pr-4 font-medium text-white">{e.project}</td>}
-                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.device}</td>

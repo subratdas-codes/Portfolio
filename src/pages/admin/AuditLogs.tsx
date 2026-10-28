@@ -48,7 +48,7 @@ export function AuditLogs() {
                   <td className={`px-4 py-3 font-medium ${color(l.action)}`}>{l.action}</td>
                   <td className="px-4 py-3 text-slate-300">{l.entity}</td>
                   <td className="px-4 py-3 text-slate-400">{l.details}</td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{new Date(l.created_at).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500">{new Date(l.created_at).toLocaleString('en-GB')}</td>
                 </tr>
               ))}
               {filtered.length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">No logs found.</td></tr>}

@@ -70,7 +70,7 @@ export function Resume() {
               </div>
               <div className="flex-1">
                 <h3 className="text-xl font-bold text-white">{resume.file_name}</h3>
-                <p className="mt-1 text-sm text-slate-400">{resume.file_size} · Uploaded {new Date(resume.uploaded_at).toLocaleDateString()}</p>
+                <p className="mt-1 text-sm text-slate-400">{resume.file_size} · Uploaded {resume.uploaded_at ? new Date(resume.uploaded_at).toLocaleDateString('en-GB') : ''}</p>
                 <p className="mt-1 flex items-center gap-1 text-sm text-emerald-400"><TrendingUp size={14} /> {resume.downloads} downloads</p>
               </div>
               <div className="flex gap-3">

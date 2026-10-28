@@ -216,7 +216,7 @@ export function Analytics() {
             <tbody>
               {visibleVisitors.map((e, i) => (
                 <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
-                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                   <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
@@ -278,7 +278,7 @@ export function Analytics() {
               {visibleProjectViews.map((e, i) => (
                 <tr key={e.id} className={`border-b border-white/5 text-slate-300 ${i === 0 ? 'bg-indigo-500/10' : ''}`}>
                   <td className="py-2 pr-4 font-medium text-white">{e.project}</td>
-                  <td className="whitespace-nowrap py-2 pr-4 text-slate-500">{new Date(e.created_at).toLocaleString()}</td>
+                  <td className="whitespace-nowrap py-2 pr-4 text-slate-500">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                   <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
@@ -331,7 +331,7 @@ export function Analytics() {
                         {isDownload ? 'Download' : 'View'}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString()}</td>
+                    <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{new Date(e.created_at).toLocaleString('en-GB')}</td>
                     <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                     <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                     <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
@@ -368,7 +368,7 @@ export function Analytics() {
             <div key={e.id} className="flex items-start justify-between gap-4 rounded-xl bg-white/[0.03] px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-sm text-white">{e.meta || '(empty question)'}</p>
-                <p className="text-xs text-slate-500">referred from {e.referrer} · {new Date(e.created_at).toLocaleString()}</p>
+                <p className="text-xs text-slate-500">referred from {e.referrer} · {new Date(e.created_at).toLocaleString('en-GB')}</p>
               </div>
             </div>
           ))}

@@ -96,7 +96,7 @@ export function Messages() {
       .map((line) => `> ${line}`)
       .join('\n');
     const draft = reply.trim() || `Hi ${m.name},\n\n`;
-    const body = `${draft}\n\n---\nOn ${new Date(m.created_at).toLocaleString()}, ${m.name} <${m.email}> wrote:\n${quoted}`;
+    const body = `${draft}\n\n---\nOn ${new Date(m.created_at).toLocaleString('en-GB')}, ${m.name} <${m.email}> wrote:\n${quoted}`;
     const gmail = `https://mail.google.com/mail/?view=cm&fs=1&${new URLSearchParams({ to: m.email, su: subject, body }).toString()}`;
     const mailto = `mailto:${m.email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
     window.open(/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ? mailto : gmail, '_blank', 'noopener,noreferrer');
@@ -298,7 +298,7 @@ export function Messages() {
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex items-center gap-2 text-xs">
                     <span className="font-semibold text-indigo-300">{activeMsg.name} <span className="font-normal text-slate-500">(visitor)</span></span>
-                    <span className="text-slate-500">{new Date(activeMsg.created_at).toLocaleString()}</span>
+                    <span className="text-slate-500">{new Date(activeMsg.created_at).toLocaleString('en-GB')}</span>
                   </div>
                   <div className="rounded-xl rounded-tl-sm bg-white/5 p-3 text-sm text-slate-200">{activeMsg.message}</div>
                 </div>
@@ -314,7 +314,7 @@ export function Messages() {
                       <span className={`font-semibold ${r.sender === 'admin' ? 'text-emerald-300' : 'text-indigo-300'}`}>
                         {r.sender === 'admin' ? 'Subrat (admin)' : 'Visitor'} <span className="font-normal text-slate-500">· email</span>
                       </span>
-                      <span className="text-slate-500">{new Date(r.created_at).toLocaleString()}</span>
+                      <span className="text-slate-500">{new Date(r.created_at).toLocaleString('en-GB')}</span>
                     </div>
                     <div className={`whitespace-pre-wrap rounded-xl ${r.sender === 'admin' ? 'rounded-tl-sm bg-emerald-500/10 p-3 text-sm text-emerald-100' : 'rounded-tl-sm bg-white/5 p-3 text-sm text-slate-200'}`}>{r.body}</div>
                   </div>
