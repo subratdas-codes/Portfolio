@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle, RotateCcw, AlertTriangle } from 'lucide-react';
+import { Eye, Download, FolderGit2, Mail, Bot, Globe, TrendingUp, BarChart3, MapPin, Clock, MessageCircle, RotateCcw, AlertTriangle, Trash2 } from 'lucide-react';
 import { useCollection, useSingleton } from '../../hooks/useStore';
-import { syncFromCloud } from '../../lib/store';
+import { remove, syncFromCloud } from '../../lib/store';
 import { supabase, isSupabaseConfigured } from '../../lib/supabase';
 import { parseVisitorMeta, describeClient, describeLocation } from '../../lib/visitor';
 
@@ -121,6 +121,19 @@ export function Analytics() {
     setTimeout(() => setResetMsg(null), 3000);
   };
 
+  const deleteEvent = async (id: string) => {
+    if (!window.confirm('Delete this analytics entry?')) return;
+    // Remove locally and push delete to Supabase (RLS allows authenticated admin)
+    remove('analytics', id);
+    if (supabase && isSupabaseConfigured) {
+      try {
+        await supabase.from('analytics').delete().eq('id', id);
+      } catch {
+        /* store queue will retry on next sync */
+      }
+    }
+  };
+
   const resetAll = async () => {
     if (!window.confirm('Reset ALL analytics counters (page views, project views, resume views, resume downloads, contacts, assistant)? This cannot be undone.')) return;
     setResetting('all');
@@ -211,6 +224,7 @@ export function Analytics() {
                 <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
                 <th className="hidden py-2 pr-4 font-medium xl:table-cell">Page</th>
                 <th className="py-2 font-medium">Referred From</th>
+                <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -222,11 +236,14 @@ export function Analytics() {
                   <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
                   <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 lg:table-cell">{e.info.isp || '—'}</td>
                   <td className="hidden max-w-[140px] truncate py-2 pr-4 text-slate-500 xl:table-cell">{e.path}</td>
-                  <td className="max-w-[180px] truncate py-2 text-slate-500">{e.referrer}</td>
+                  <td className="max-w-[180px] truncate py-2 pr-2 text-slate-500">{e.referrer}</td>
+                  <td className="py-2 text-right">
+                    <button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
+                  </td>
                 </tr>
               ))}
               {visitorActivity.length === 0 && (
-                <tr><td colSpan={7} className="py-6 text-center text-slate-500">No site visits recorded yet.</td></tr>
+                <tr><td colSpan={8} className="py-6 text-center text-slate-500">No site visits recorded yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -271,7 +288,8 @@ export function Analytics() {
                 <th className="py-2 pr-4 font-medium">IP Address</th>
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
-                <th className="hidden py-2 font-medium lg:table-cell">Referred From</th>
+                <th className="hidden py-2 pr-2 font-medium lg:table-cell">Referred From</th>
+                <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -282,11 +300,14 @@ export function Analytics() {
                   <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs text-slate-400">{e.info.ip || '—'}</td>
                   <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                   <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
-                  <td className="hidden max-w-[180px] truncate py-2 text-slate-500 lg:table-cell">{e.referrer}</td>
+                  <td className="hidden max-w-[180px] truncate py-2 pr-2 text-slate-500 lg:table-cell">{e.referrer}</td>
+                  <td className="py-2 text-right">
+                    <button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
+                  </td>
                 </tr>
               ))}
               {projectViewDetails.length === 0 && (
-                <tr><td colSpan={6} className="py-6 text-center text-slate-500">No project views recorded yet.</td></tr>
+                <tr><td colSpan={8} className="py-6 text-center text-slate-500">No project views recorded yet.</td></tr>
               )}
             </tbody>
           </table>
@@ -318,7 +339,8 @@ export function Analytics() {
                 <th className="py-2 pr-4 font-medium">Location</th>
                 <th className="hidden py-2 pr-4 font-medium md:table-cell">Device</th>
                 <th className="hidden py-2 pr-4 font-medium lg:table-cell">ISP</th>
-                <th className="hidden py-2 font-medium xl:table-cell">Referred From</th>
+                <th className="hidden py-2 pr-2 font-medium xl:table-cell">Referred From</th>
+                <th className="py-2 text-right font-medium">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -336,12 +358,15 @@ export function Analytics() {
                     <td className="whitespace-nowrap py-2 pr-4 text-slate-400">{e.location || '—'}</td>
                     <td className="hidden whitespace-nowrap py-2 pr-4 text-slate-500 md:table-cell">{e.device}</td>
                     <td className="hidden max-w-[160px] truncate py-2 pr-4 text-slate-500 lg:table-cell">{e.info.isp || '—'}</td>
-                    <td className="hidden max-w-[180px] truncate py-2 text-slate-500 xl:table-cell">{e.referrer}</td>
+                    <td className="hidden max-w-[180px] truncate py-2 pr-2 text-slate-500 xl:table-cell">{e.referrer}</td>
+                    <td className="py-2 text-right">
+                      <button onClick={() => deleteEvent(e.id)} className="rounded p-1 text-slate-500 transition hover:bg-rose-500/10 hover:text-rose-400" title="Delete this entry"><Trash2 size={14} /></button>
+                    </td>
                   </tr>
                 );
               })}
               {resumeActivity.length === 0 && (
-                <tr><td colSpan={7} className="py-6 text-center text-slate-500">No resume downloads or views recorded yet.</td></tr>
+                <tr><td colSpan={8} className="py-6 text-center text-slate-500">No resume downloads or views recorded yet.</td></tr>
               )}
             </tbody>
           </table>
