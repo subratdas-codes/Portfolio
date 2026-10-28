@@ -111,6 +111,14 @@ npm run preview  # preview the build
 
 ---
 
+## 📁 Documentation
+
+- [Project Architecture & Workflow (PDF)](docs/README.pdf)
+- [Architecture Details (PDF)](docs/ARCHITECTURE.pdf)
+- [Project Structure & Workflow (PDF)](docs/PROJECT_STRUCTURE_WORKFLOW.pdf)
+
+---
+
 ## 📝 Notes
 
 - The hero uses a GPU-friendly canvas particle network (reduced-motion aware) rather than a heavy Three.js bundle for reliability and performance.
@@ -119,4 +127,10 @@ npm run preview  # preview the build
 
 ---
 
-© Subrat Das. Built with ❤️ and React.
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+---
+
+© 2026 Subrat Das. All rights reserved. This is a personal portfolio project - please do not copy or redistribute without permission.
