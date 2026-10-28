@@ -80,9 +80,18 @@ export function Dashboard() {
   const deleteEvent = async (id: string) => {
     if (!window.confirm('Delete this analytics entry?')) return;
     setDeleting(true);
-    // Remove from local store first
     remove('analytics', id);
     if (supabase && isSupabaseConfigured) {
+      try {
+        await fetch(`${(supabase as any).supabaseUrl}/rest/v1/analytics?id=eq.${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: {
+            apikey: (supabase as any).supabaseKey,
+            Authorization: `Bearer ${(supabase as any).supabaseKey}`,
+            Prefer: 'return=minimal'
+          }
+        });
+      } catch {}
       try {
         await supabase.from('analytics').delete().eq('id', id);
       } catch {}
@@ -91,7 +100,8 @@ export function Dashboard() {
       } catch {}
     }
     try { await syncFromCloud(); } catch {}
-    try { await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
@@ -141,7 +151,8 @@ export function Dashboard() {
     }
     setSelected(new Set());
     try { await syncFromCloud(); } catch {}
-    try { await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
+    try { await new Promise(r=>setTimeout(r,300)); await syncFromCloud(); } catch {}
     setDeleting(false);
   };
 
